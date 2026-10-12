@@ -526,5 +526,21 @@ function renderUsers() {
 
 /* ---------- boot ---------- */
 buildSalePane('PY'); buildSalePane('SP');
-fetch('/api/me', { credentials: 'same-origin' }).then(r => r.ok ? r.json() : null).then(d => d ? enter(d.user) : showLogin()).catch(() => showLogin('Sem conexão com o servidor.'));
+$('#setupForm').onsubmit = async e => {
+  e.preventDefault(); $('#sErr').hidden = true;
+  if ($('#sPass').value !== $('#sPass2').value) { $('#sErr').textContent = 'As senhas não são iguais.'; $('#sErr').hidden = false; return; }
+  $('#sGo').disabled = true;
+  try { const r = await api('/setup', 'POST', { nome: $('#sNome').value, login: $('#sLogin').value, senha: $('#sPass').value }); $('#setup').hidden = true; await enter(r.user); }
+  catch (err) { $('#sErr').textContent = err.message || 'Não foi possível criar.'; $('#sErr').hidden = false; }
+  finally { $('#sGo').disabled = false; }
+};
+(async () => {
+  try {
+    const me = await fetch('/api/me', { credentials: 'same-origin' });
+    if (me.ok) return enter((await me.json()).user);
+    const st = await (await fetch('/api/status', { credentials: 'same-origin' })).json();
+    if (st.setup || st.setupExpired) { $('#setup').hidden = false; $('#sExp').hidden = !st.setupExpired; $('#sGo').disabled = !!st.setupExpired; return; }
+    showLogin();
+  } catch (e) { showLogin('Sem conexão com o servidor.'); }
+})();
 })();

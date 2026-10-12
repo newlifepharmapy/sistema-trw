@@ -11,19 +11,11 @@ Sistema web de vendas, estoque, compras e importações para as lojas do Paragua
 
 1. No Railway, crie um projeto com **Deploy from GitHub repo** e escolha este repositório.
 2. No mesmo projeto, clique em **+ New → Database → PostgreSQL**.
-3. No serviço do sistema, abra **Variables** e crie:
-   | Variável | Valor |
-   |---|---|
-   | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` (referência ao banco criado no passo 2) |
-   | `SESSION_SECRET` | um texto longo e aleatório (ex.: 40 letras e números) |
-   | `ADMIN_LOGIN` | o usuário do primeiro supervisor (ex.: `admin`) |
-   | `ADMIN_PASSWORD` | a senha do primeiro supervisor (mín. 8 caracteres) |
-   | `ADMIN_NOME` | o nome que aparece no sistema |
-   | `NODE_ENV` | `production` |
-4. Em **Settings → Networking**, clique em **Generate Domain** para testar, e em **Custom Domain** para usar o seu domínio. O Railway mostra um registro **CNAME** para criar no painel do seu provedor de domínio.
-5. Entre com o `ADMIN_LOGIN` e `ADMIN_PASSWORD`, altere a senha em **Alterar senha** e cadastre os vendedores na aba **Vendedores**.
+3. No serviço do sistema, abra **Variables** e crie só uma variável: `DATABASE_URL` = `${{Postgres.DATABASE_URL}}`.
+4. Em **Settings → Networking**, clique em **Generate Domain** para testar, e em **Custom Domain** para usar o seu domínio. O Railway mostra os registros DNS para criar no painel do seu provedor de domínio.
+5. Abra o endereço logo depois do deploy: a tela **Criar supervisor** aparece só enquanto não existe nenhum usuário e só nos primeiros 30 minutos depois que o serviço inicia. Depois disso, cadastre os vendedores na aba **Vendedores**.
 
-O primeiro supervisor só é criado quando o banco está vazio. Depois disso, as variáveis `ADMIN_*` podem ser apagadas.
+Variáveis opcionais: `SESSION_SECRET` (sem ela, um segredo aleatório é gerado e guardado no banco), `ADMIN_LOGIN`, `ADMIN_PASSWORD` e `ADMIN_NOME` (criam o primeiro supervisor sem a tela de configuração).
 
 Opcional: `TZ_LOJA` define o fuso usado para a data das vendas (padrão `America/Asuncion`).
 

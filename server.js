@@ -9,11 +9,6 @@ const { pool, migrate, tx } = require('./db');
 
 const PROD = process.env.NODE_ENV === 'production' || !!process.env.RAILWAY_ENVIRONMENT;
 const PORT = process.env.PORT || 3000;
-const SESSION_SECRET = process.env.SESSION_SECRET || (PROD ? null : 'dev-secret-only-for-local');
-if (!SESSION_SECRET) {
-  console.error('SESSION_SECRET não definida. Crie uma variável SESSION_SECRET com um texto longo e aleatório.');
-  process.exit(1);
-}
 
 const app = express();
 app.set('trust proxy', 1);
@@ -32,15 +27,27 @@ app.use(helmet({
   },
 }));
 app.use(express.json({ limit: '1mb' }));
-app.use(session({
-  store: new PgStore({ pool, tableName: 'sessions', createTableIfMissing: true }),
-  name: 'trw.sid',
-  secret: SESSION_SECRET,
-  resave: false,
-  saveUninitialized: false,
-  rolling: true,
-  cookie: { httpOnly: true, sameSite: 'lax', secure: PROD, maxAge: 12 * 3600 * 1000 },
-}));
+// the session secret comes from SESSION_SECRET or, when unset, from a random value kept in the database
+let sessionMw = null;
+app.use((req, res, next) => (sessionMw ? sessionMw(req, res, next) : res.status(503).json({ erro: 'Sistema iniciando. Tente em alguns segundos.' })));
+async function sessionSecret() {
+  if (process.env.SESSION_SECRET) return process.env.SESSION_SECRET;
+  await pool.query('create table if not exists app_secrets (nome text primary key, valor text not null)');
+  await pool.query('insert into app_secrets (nome, valor) values ($1, $2) on conflict (nome) do nothing', ['session', crypto.randomBytes(48).toString('hex')]);
+  const { rows } = await pool.query('select valor from app_secrets where nome=$1', ['session']);
+  return rows[0].valor;
+}
+function initSession(secret) {
+  sessionMw = session({
+    store: new PgStore({ pool, tableName: 'sessions', createTableIfMissing: true }),
+    name: 'trw.sid',
+    secret,
+    resave: false,
+    saveUninitialized: false,
+    rolling: true,
+    cookie: { httpOnly: true, sameSite: 'lax', secure: PROD, maxAge: 12 * 3600 * 1000 },
+  });
+}
 
 // ---------- helpers ----------
 let version = Date.now();
@@ -110,6 +117,32 @@ app.post('/api/login', h(async (req, res) => {
   const ok = u && u.ativo && await bcrypt.compare(senha, u.senha_hash);
   if (!ok) { failAttempt(ip); return res.status(401).json({ erro: 'Usuário ou senha incorretos.' }); }
   attempts.delete(ip);
+  req.session.regenerate(err => {
+    if (err) return res.status(500).json({ erro: 'Não foi possível entrar.' });
+    req.session.uid = u.id;
+    res.json({ user: pubUser(u) });
+  });
+}));
+// first access: while no user exists, the first supervisor is created on screen. The screen only works
+// during the first 30 minutes after the server starts; after that a restart of the service reopens it.
+const STARTED = Date.now();
+const SETUP_WINDOW = 30 * 60 * 1000;
+const setupOpen = () => Date.now() - STARTED < SETUP_WINDOW;
+app.get('/api/status', h(async (req, res) => {
+  const { rows } = await pool.query('select count(*)::int n from users');
+  const empty = rows[0].n === 0;
+  res.json({ setup: empty && setupOpen(), setupExpired: empty && !setupOpen() });
+}));
+app.post('/api/setup', h(async (req, res) => {
+  if (!setupOpen()) throw new HttpError(403, 'O prazo para criar o primeiro supervisor terminou. Reinicie o serviço no Railway e tente de novo.');
+  const d = userBody({ ...req.body, papel: 'supervisor', loja: 'ambas' }, true);
+  const u = await tx(async c => {
+    await c.query('lock table users in exclusive mode');
+    const { rows } = await c.query('select count(*)::int n from users');
+    if (rows[0].n > 0) throw new HttpError(409, 'O sistema já foi configurado. Entre com seu usuário e senha.');
+    const r = await c.query(`insert into users (login,senha_hash,nome,papel,loja) values ($1,$2,$3,'supervisor','ambas') returning *`, [d.login, await bcrypt.hash(d.senha, 12), d.nome]);
+    return r.rows[0];
+  });
   req.session.regenerate(err => {
     if (err) return res.status(500).json({ erro: 'Não foi possível entrar.' });
     req.session.uid = u.id;
@@ -388,14 +421,13 @@ async function seedAdmin() {
   const { rows } = await pool.query('select count(*)::int n from users');
   if (rows[0].n > 0) return;
   const login = str(process.env.ADMIN_LOGIN || 'admin', 40).toLowerCase();
-  let senha = process.env.ADMIN_PASSWORD;
-  let generated = false;
-  if (!senha || senha.length < 8) { senha = crypto.randomBytes(9).toString('base64url'); generated = true; }
+  const senha = process.env.ADMIN_PASSWORD;
+  if (!senha || senha.length < 8) { console.log('Nenhum usuário ainda: abra o sistema no navegador para criar o primeiro supervisor.'); return; }
   await pool.query(`insert into users (login,senha_hash,nome,papel,loja) values ($1,$2,$3,'supervisor','ambas')`,
     [login, await bcrypt.hash(senha, 12), str(process.env.ADMIN_NOME || 'Administrador', 80)]);
-  console.log(`Primeiro supervisor criado: usuário "${login}".` + (generated ? ` Senha gerada: ${senha} (troque após entrar).` : ' Senha: a definida em ADMIN_PASSWORD.'));
+  console.log(`Primeiro supervisor criado a partir de ADMIN_LOGIN/ADMIN_PASSWORD: usuário "${login}".`);
 }
 
-migrate().then(seedAdmin).then(() => {
+migrate().then(seedAdmin).then(sessionSecret).then(initSession).then(() => {
   app.listen(PORT, () => console.log(`Sistema TRW rodando na porta ${PORT}`));
 }).catch(e => { console.error('Falha ao iniciar:', e); process.exit(1); });

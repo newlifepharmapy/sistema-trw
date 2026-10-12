@@ -28,6 +28,25 @@
   </form>
 </div>
 
+<!-- FIRST-RUN SETUP -->
+<div class="login-screen" id="setup" hidden>
+  <div class="login-side">
+    <div class="logo-lg"><span class="mark">TRW</span></div>
+    <h1>Bem-vindo ao<br>Sistema TRW</h1>
+    <p>Este é o primeiro acesso. Crie agora a conta do supervisor principal. Depois disso esta tela deixa de existir e todos entram com usuário e senha.</p>
+  </div>
+  <form class="login-card" id="setupForm" autocomplete="off">
+    <h2>Criar supervisor</h2>
+    <div class="form-err" id="sExp" hidden>O prazo para criar o primeiro supervisor terminou. No Railway, abra o serviço, clique em <b>Restart</b> e volte a esta página.</div>
+    <label class="field"><span class="lbl">Seu nome</span><input type="text" id="sNome" required></label>
+    <label class="field"><span class="lbl">Usuário de acesso</span><input type="text" id="sLogin" autocomplete="username" placeholder="ex.: admin" required></label>
+    <label class="field"><span class="lbl">Senha (mín. 8 caracteres)</span><input type="password" id="sPass" autocomplete="new-password" required minlength="8"></label>
+    <label class="field"><span class="lbl">Repita a senha</span><input type="password" id="sPass2" autocomplete="new-password" required minlength="8"></label>
+    <div class="form-err" id="sErr" hidden></div>
+    <button class="btn primary go" type="submit" id="sGo">Criar e entrar</button>
+  </form>
+</div>
+
 <!-- APP -->
 <div class="app" id="app" hidden>
   <aside class="side" id="side">

@@ -5,9 +5,9 @@ types.setTypeParser(1700, v => (v === null ? null : parseFloat(v)));
 types.setTypeParser(1082, v => v);
 types.setTypeParser(20, v => (v === null ? null : parseInt(v, 10)));
 
-const url = process.env.DATABASE_URL;
+const url = process.env.DATABASE_URL || process.env.DATABASE_PRIVATE_URL || process.env.POSTGRES_URL;
 if (!url) {
-  console.error('DATABASE_URL não definida. No Railway, adicione um banco PostgreSQL e referencie a variável DATABASE_URL no serviço.');
+  console.error('DATABASE_URL não definida. No Railway, crie um banco PostgreSQL no projeto e, no serviço do sistema, adicione a variável DATABASE_URL com o valor ${{Postgres.DATABASE_URL}}.');
   process.exit(1);
 }
 const needsSsl = process.env.PGSSL === 'true';
