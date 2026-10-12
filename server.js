@@ -408,7 +408,8 @@ app.post('/api/users/:id/toggle', auth, sup, h(async (req, res) => {
 
 // ---------- static + errors ----------
 app.get('/health', (req, res) => res.json({ ok: true }));
-app.use(express.static(path.join(__dirname, 'public'), { index: 'index.html', maxAge: PROD ? '1h' : 0 }));
+// always revalidate the page files so every computer gets a new version right after a deploy
+app.use(express.static(path.join(__dirname, 'public'), { index: 'index.html', setHeaders: res => res.setHeader('Cache-Control', 'no-cache') }));
 app.use('/api', (req, res) => res.status(404).json({ erro: 'Rota não encontrada.' }));
 app.use((err, req, res, next) => {
   if (err instanceof HttpError) return res.status(err.status).json({ erro: err.message });
