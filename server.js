@@ -1,0 +1,401 @@
+const path = require('path');
+const crypto = require('crypto');
+const express = require('express');
+const session = require('express-session');
+const PgStore = require('connect-pg-simple')(session);
+const helmet = require('helmet');
+const bcrypt = require('bcryptjs');
+const { pool, migrate, tx } = require('./db');
+
+const PROD = process.env.NODE_ENV === 'production' || !!process.env.RAILWAY_ENVIRONMENT;
+const PORT = process.env.PORT || 3000;
+const SESSION_SECRET = process.env.SESSION_SECRET || (PROD ? null : 'dev-secret-only-for-local');
+if (!SESSION_SECRET) {
+  console.error('SESSION_SECRET não definida. Crie uma variável SESSION_SECRET com um texto longo e aleatório.');
+  process.exit(1);
+}
+
+const app = express();
+app.set('trust proxy', 1);
+app.disable('x-powered-by');
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+      fontSrc: ["'self'", 'https://fonts.gstatic.com'],
+      imgSrc: ["'self'", 'data:'],
+      connectSrc: ["'self'"],
+      frameAncestors: ["'none'"],
+    },
+  },
+}));
+app.use(express.json({ limit: '1mb' }));
+app.use(session({
+  store: new PgStore({ pool, tableName: 'sessions', createTableIfMissing: true }),
+  name: 'trw.sid',
+  secret: SESSION_SECRET,
+  resave: false,
+  saveUninitialized: false,
+  rolling: true,
+  cookie: { httpOnly: true, sameSite: 'lax', secure: PROD, maxAge: 12 * 3600 * 1000 },
+}));
+
+// ---------- helpers ----------
+let version = Date.now();
+const bump = () => { version += 1; };
+const r2 = n => Math.round((+n || 0) * 100) / 100;
+const num = (v, d = 0) => (Number.isFinite(+v) ? +v : d);
+const str = (v, max = 200) => String(v ?? '').trim().slice(0, max);
+const isDate = v => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
+const todayStr = () => new Date().toLocaleDateString('sv-SE', { timeZone: process.env.TZ_LOJA || 'America/Asuncion' });
+const LOJAS = ['PY', 'SP'];
+const MOEDAS = ['USD', 'BRL'];
+const IMP_ST = ['Pedido', 'Em produção', 'Em trânsito', 'Na aduana'];
+const IMP_COST = ['frete', 'seguro', 'despacho', 'impostos', 'outros'];
+
+class HttpError extends Error { constructor(status, msg) { super(msg); this.status = status; } }
+const bad = msg => { throw new HttpError(400, msg); };
+const h = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+
+// state-changing requests must be JSON: blocks cross-site form posts (CSRF) together with SameSite cookies
+app.use('/api', (req, res, next) => {
+  if (['POST', 'PUT', 'DELETE'].includes(req.method) && !req.is('application/json')) return res.status(415).json({ erro: 'Requisição inválida.' });
+  next();
+});
+
+async function loadUser(req, res, next) {
+  if (!req.session.uid) return res.status(401).json({ erro: 'Sessão expirada. Entre novamente.' });
+  const { rows } = await pool.query('select * from users where id=$1', [req.session.uid]);
+  const u = rows[0];
+  if (!u || !u.ativo) { req.session.destroy(() => {}); return res.status(401).json({ erro: 'Usuário inativo.' }); }
+  req.user = u;
+  next();
+}
+const auth = h(loadUser);
+const sup = (req, res, next) => (req.user.papel === 'supervisor' ? next() : res.status(403).json({ erro: 'Apenas supervisores podem fazer isso.' }));
+const canStore = (u, l) => u.papel === 'supervisor' || u.loja === 'ambas' || u.loja === l;
+
+const pubUser = u => ({ id: u.id, login: u.login, nome: u.nome, papel: u.papel, loja: u.loja, telefone: u.telefone, documento: u.documento, comissao: u.comissao, ativo: u.ativo });
+const mapProduct = p => ({ id: p.id, codigo: p.codigo, nome: p.nome, lote: p.lote, validade: p.validade || '', custo: p.custo, precoUsd: p.preco_usd, precoBrl: p.preco_brl, estoque: { PY: p.estoque_py, SP: p.estoque_sp } });
+const mapSale = s => ({ id: s.id, loja: s.loja, data: s.data, ts: s.ts, moeda: s.moeda, total: s.total, cotacao: s.cotacao, pagamento: s.pagamento, cliente: s.cliente, itens: s.itens, custoUsd: s.custo_usd, vendedorId: s.vendedor_id, vendedorNome: s.vendedor_nome, cancelada: s.cancelada, canceladaPor: s.cancelada_por });
+const mapPurchase = p => ({ id: p.id, data: p.data, ts: p.ts, fornecedor: p.fornecedor, loja: p.loja, moeda: p.moeda, itens: p.itens, subtotal: p.subtotal, fretePct: p.frete_pct, freteValor: p.frete_valor, freteiro: p.freteiro, total: p.total, cotacao: p.cotacao, criadoPor: p.criado_por });
+const mapImport = i => ({ id: i.id, ref: i.ref, fornecedor: i.fornecedor, origem: i.origem, data: i.data, eta: i.eta || '', status: i.status, itens: i.itens, custos: i.custos, recebida: i.recebida, recebidaEm: i.recebida_em, recebidaPor: i.recebida_por, custoTotal: i.custo_total, ts: i.ts, criadoPor: i.criado_por });
+
+async function currentRate(c = pool) {
+  const { rows } = await c.query('select cotacao from settings where id=1');
+  return rows[0] && rows[0].cotacao ? +rows[0].cotacao : null;
+}
+
+// ---------- auth ----------
+const attempts = new Map(); // ip -> {n, until}
+function limited(ip) {
+  const a = attempts.get(ip);
+  return a && a.n >= 8 && a.until > Date.now();
+}
+function failAttempt(ip) {
+  const a = attempts.get(ip) || { n: 0, until: 0 };
+  a.n = a.until > Date.now() ? a.n + 1 : 1;
+  a.until = Date.now() + 15 * 60 * 1000;
+  attempts.set(ip, a);
+}
+
+app.post('/api/login', h(async (req, res) => {
+  const ip = req.ip;
+  if (limited(ip)) return res.status(429).json({ erro: 'Muitas tentativas. Aguarde 15 minutos e tente de novo.' });
+  const login = str(req.body.login, 80), senha = String(req.body.senha || '');
+  const { rows } = await pool.query('select * from users where lower(login)=lower($1)', [login]);
+  const u = rows[0];
+  const ok = u && u.ativo && await bcrypt.compare(senha, u.senha_hash);
+  if (!ok) { failAttempt(ip); return res.status(401).json({ erro: 'Usuário ou senha incorretos.' }); }
+  attempts.delete(ip);
+  req.session.regenerate(err => {
+    if (err) return res.status(500).json({ erro: 'Não foi possível entrar.' });
+    req.session.uid = u.id;
+    res.json({ user: pubUser(u) });
+  });
+}));
+app.post('/api/logout', (req, res) => req.session.destroy(() => { res.clearCookie('trw.sid'); res.json({ ok: true }); }));
+app.get('/api/me', auth, (req, res) => res.json({ user: pubUser(req.user) }));
+app.post('/api/me/senha', auth, h(async (req, res) => {
+  const atual = String(req.body.atual || ''), nova = String(req.body.nova || '');
+  if (!await bcrypt.compare(atual, req.user.senha_hash)) bad('A senha atual está incorreta.');
+  if (nova.length < 8) bad('A nova senha precisa ter pelo menos 8 caracteres.');
+  await pool.query('update users set senha_hash=$1 where id=$2', [await bcrypt.hash(nova, 12), req.user.id]);
+  res.json({ ok: true });
+}));
+
+// ---------- data ----------
+app.get('/api/version', auth, (req, res) => res.json({ v: version }));
+
+app.get('/api/data', auth, h(async (req, res) => {
+  const u = req.user, isSup = u.papel === 'supervisor';
+  const since = Date.now() - 400 * 864e5;
+  const [settings, hist, products, sales] = await Promise.all([
+    pool.query('select * from settings where id=1'),
+    pool.query('select * from rate_history order by dia desc limit 200'),
+    pool.query('select * from products where ativo order by nome'),
+    isSup
+      ? pool.query('select * from sales where ts >= $1 order by ts desc', [since])
+      : pool.query('select * from sales where ts >= $1 and (loja = $2 or $2 = \'ambas\') order by ts desc', [since, u.loja]),
+  ]);
+  const st = settings.rows[0];
+  const out = {
+    v: version,
+    settings: st ? { cotacao: st.cotacao, atualizadoEm: st.atualizado_em, atualizadoPor: st.atualizado_por } : null,
+    historico: hist.rows.map(r => ({ d: r.dia, v: r.valor, por: r.por, ts: r.ts })),
+    products: products.rows.map(mapProduct),
+    sales: sales.rows.map(mapSale),
+    purchases: [], imports: [], users: [],
+  };
+  if (isSup) {
+    const [p, i, us] = await Promise.all([
+      pool.query('select * from purchases where ts >= $1 order by ts desc', [since]),
+      pool.query('select * from imports where ts >= $1 or not recebida order by ts desc', [since]),
+      pool.query('select * from users order by nome'),
+    ]);
+    out.purchases = p.rows.map(mapPurchase);
+    out.imports = i.rows.map(mapImport);
+    out.users = us.rows.map(pubUser);
+  }
+  res.json(out);
+}));
+
+// ---------- câmbio ----------
+app.post('/api/cotacao', auth, sup, h(async (req, res) => {
+  const v = num(req.body.valor);
+  if (!(v > 0 && v < 1000)) bad('Informe uma cotação válida, por exemplo 5,42.');
+  const now = Date.now(), dia = todayStr();
+  await tx(async c => {
+    await c.query(`insert into settings (id, cotacao, atualizado_em, atualizado_por) values (1,$1,$2,$3)
+      on conflict (id) do update set cotacao=excluded.cotacao, atualizado_em=excluded.atualizado_em, atualizado_por=excluded.atualizado_por`, [v, now, req.user.nome]);
+    await c.query(`insert into rate_history (dia, valor, por, ts) values ($1,$2,$3,$4)
+      on conflict (dia) do update set valor=excluded.valor, por=excluded.por, ts=excluded.ts`, [dia, v, req.user.nome, now]);
+  });
+  bump(); res.json({ ok: true });
+}));
+
+// ---------- produtos ----------
+function productBody(b) {
+  const nome = str(b.nome); if (!nome) bad('Informe o nome do produto.');
+  const validade = b.validade ? (isDate(b.validade) ? b.validade : bad('Validade inválida.')) : null;
+  return [str(b.codigo, 60), nome, str(b.lote, 60), validade, r2(num(b.custo)), r2(num(b.precoUsd)), r2(num(b.precoBrl)), num(b.estoque?.PY), num(b.estoque?.SP)];
+}
+async function codeTaken(codigo, id) {
+  if (!codigo) return false;
+  const { rows } = await pool.query('select 1 from products where ativo and lower(codigo)=lower($1) and id <> $2', [codigo, id || 0]);
+  return rows.length > 0;
+}
+app.post('/api/products', auth, sup, h(async (req, res) => {
+  const v = productBody(req.body);
+  if (await codeTaken(v[0])) bad('Já existe um produto com este código.');
+  const { rows } = await pool.query(`insert into products (codigo,nome,lote,validade,custo,preco_usd,preco_brl,estoque_py,estoque_sp) values ($1,$2,$3,$4,$5,$6,$7,$8,$9) returning id`, v);
+  bump(); res.json({ id: rows[0].id });
+}));
+app.put('/api/products/:id', auth, sup, h(async (req, res) => {
+  const v = productBody(req.body), id = +req.params.id;
+  if (await codeTaken(v[0], id)) bad('Já existe um produto com este código.');
+  await pool.query(`update products set codigo=$1,nome=$2,lote=$3,validade=$4,custo=$5,preco_usd=$6,preco_brl=$7,estoque_py=$8,estoque_sp=$9 where id=$10`, [...v, id]);
+  bump(); res.json({ ok: true });
+}));
+app.delete('/api/products/:id', auth, sup, h(async (req, res) => {
+  await pool.query('update products set ativo=false where id=$1', [+req.params.id]);
+  bump(); res.json({ ok: true });
+}));
+
+// ---------- vendas ----------
+const PAYS = ['Dinheiro', 'Cartão', 'PIX / Transf.', 'Outro'];
+app.post('/api/sales', auth, h(async (req, res) => {
+  const b = req.body, u = req.user;
+  const loja = LOJAS.includes(b.loja) ? b.loja : bad('Loja inválida.');
+  if (!canStore(u, loja)) throw new HttpError(403, 'Você não tem acesso a esta loja.');
+  const moeda = MOEDAS.includes(b.moeda) ? b.moeda : bad('Moeda inválida.');
+  const itensIn = Array.isArray(b.itens) ? b.itens.filter(i => num(i.qtd) > 0).slice(0, 200) : [];
+  if (!itensIn.length) bad('Adicione pelo menos um produto.');
+  const out = await tx(async c => {
+    const rate = await currentRate(c);
+    if (!rate) bad('Defina a cotação do dólar antes de vender.');
+    const itens = []; let custoUsd = 0;
+    for (const i of itensIn) {
+      const qtd = num(i.qtd), preco = r2(num(i.preco));
+      if (!(preco > 0)) bad('Há item sem preço. Informe o preço antes de registrar.');
+      if (i.pid) {
+        const col = loja === 'PY' ? 'estoque_py' : 'estoque_sp';
+        const { rows } = await c.query(`update products set ${col} = ${col} - $1 where id=$2 and ativo returning *`, [qtd, +i.pid]);
+        const p = rows[0]; if (!p) bad('Produto não encontrado: ' + str(i.nome));
+        custoUsd += qtd * p.custo;
+        itens.push({ pid: p.id, nome: p.nome, codigo: p.codigo, lote: p.lote, validade: p.validade || '', qtd, preco });
+      } else {
+        itens.push({ pid: null, nome: str(i.nome, 120) || 'Item avulso', codigo: '', lote: '', validade: '', qtd, preco });
+      }
+    }
+    const total = r2(itens.reduce((a, i) => a + i.qtd * i.preco, 0));
+    const { rows } = await c.query(`insert into sales (loja,data,ts,moeda,total,cotacao,pagamento,cliente,itens,custo_usd,vendedor_id,vendedor_nome)
+      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) returning *`,
+      [loja, todayStr(), Date.now(), moeda, total, rate, PAYS.includes(b.pagamento) ? b.pagamento : 'Outro', str(b.cliente, 120), JSON.stringify(itens), r2(custoUsd), u.id, u.nome]);
+    return rows[0];
+  });
+  bump(); res.json({ sale: mapSale(out) });
+}));
+app.post('/api/sales/:id/cancel', auth, sup, h(async (req, res) => {
+  await tx(async c => {
+    const { rows } = await c.query('select * from sales where id=$1 for update', [+req.params.id]);
+    const s = rows[0]; if (!s) bad('Venda não encontrada.'); if (s.cancelada) bad('Esta venda já foi cancelada.');
+    const col = s.loja === 'PY' ? 'estoque_py' : 'estoque_sp';
+    for (const i of s.itens) if (i.pid) await c.query(`update products set ${col} = ${col} + $1 where id=$2`, [i.qtd, i.pid]);
+    await c.query('update sales set cancelada=true, cancelada_por=$1, cancelada_em=$2 where id=$3', [req.user.nome, Date.now(), s.id]);
+  });
+  bump(); res.json({ ok: true });
+}));
+
+const csvq = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+const br2 = n => (+n || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+app.get('/api/export/vendas.csv', auth, sup, h(async (req, res) => {
+  const { loja, de, ate } = req.query;
+  const p = [], w = [];
+  if (LOJAS.includes(loja)) { p.push(loja); w.push(`loja=$${p.length}`); }
+  if (isDate(de)) { p.push(de); w.push(`data >= $${p.length}`); }
+  if (isDate(ate)) { p.push(ate); w.push(`data <= $${p.length}`); }
+  const { rows } = await pool.query(`select * from sales ${w.length ? 'where ' + w.join(' and ') : ''} order by ts desc`, p);
+  const rate = await currentRate();
+  const head = ['Data', 'Hora', 'Loja', 'Vendedor', 'Cliente', 'Itens', 'Pagamento', 'Moeda', 'Valor', 'Valor US$ (cotação atual)', 'Valor R$ (cotação atual)', 'Cotação na venda', 'Cancelada'];
+  const lines = [head.map(csvq).join(';')].concat(rows.map(s => {
+    const usd = s.moeda === 'USD' ? s.total : (rate ? s.total / rate : 0);
+    return [s.data.split('-').reverse().join('/'), new Date(+s.ts).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: process.env.TZ_LOJA || 'America/Asuncion' }),
+      s.loja === 'PY' ? 'Paraguay' : 'São Paulo', s.vendedor_nome, s.cliente, s.itens.map(i => `${i.qtd}x ${i.nome}`).join(', '), s.pagamento, s.moeda,
+      br2(s.total), br2(usd), br2(rate ? usd * rate : 0), s.cotacao, s.cancelada ? 'sim' : ''].map(csvq).join(';');
+  }));
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="vendas_${todayStr()}.csv"`);
+  res.send('﻿' + lines.join('\n'));
+}));
+
+// ---------- compras e entradas ----------
+app.post('/api/purchases', auth, sup, h(async (req, res) => {
+  const b = req.body;
+  const loja = LOJAS.includes(b.loja) ? b.loja : bad('Loja inválida.');
+  const moeda = MOEDAS.includes(b.moeda) ? b.moeda : bad('Moeda inválida.');
+  const itensIn = Array.isArray(b.itens) ? b.itens.filter(i => num(i.qtd) > 0 && i.pid).slice(0, 300) : [];
+  if (!itensIn.length) bad('Adicione pelo menos um produto.');
+  const fretePct = loja === 'SP' ? Math.max(0, num(b.fretePct)) : 0;
+  await tx(async c => {
+    const rate = await currentRate(c);
+    if (moeda === 'BRL' && !rate) bad('Defina a cotação do dólar antes.');
+    const col = loja === 'PY' ? 'estoque_py' : 'estoque_sp';
+    const itens = [];
+    for (const i of itensIn) {
+      const qtd = num(i.qtd), custo = r2(Math.max(0, num(i.custo)));
+      const custoUsd = r2((moeda === 'USD' ? custo : custo / rate) * (1 + fretePct / 100));
+      const { rows } = await c.query(`update products set ${col} = ${col} + $1, custo = $2 where id=$3 and ativo returning id, nome`, [qtd, custoUsd, +i.pid]);
+      if (!rows[0]) bad('Produto não encontrado.');
+      itens.push({ pid: rows[0].id, nome: rows[0].nome, qtd, custo });
+    }
+    const subtotal = r2(itens.reduce((a, i) => a + i.qtd * i.custo, 0)), freteValor = r2(subtotal * fretePct / 100);
+    await c.query(`insert into purchases (data,ts,fornecedor,loja,moeda,itens,subtotal,frete_pct,frete_valor,freteiro,total,cotacao,criado_por)
+      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+      [isDate(b.data) ? b.data : todayStr(), Date.now(), str(b.fornecedor), loja, moeda, JSON.stringify(itens), subtotal, fretePct, freteValor, loja === 'SP' ? str(b.freteiro) : '', r2(subtotal + freteValor), rate, req.user.nome]);
+  });
+  bump(); res.json({ ok: true });
+}));
+
+// ---------- importações ----------
+function importBody(b) {
+  const itens = (Array.isArray(b.itens) ? b.itens : []).filter(i => num(i.qtd) > 0 && i.pid).slice(0, 300)
+    .map(i => ({ pid: +i.pid, nome: str(i.nome, 120), qtd: num(i.qtd), fob: r2(Math.max(0, num(i.fob))) }));
+  if (!itens.length) bad('Adicione pelo menos um produto.');
+  const custos = Object.fromEntries(IMP_COST.map(k => [k, r2(Math.max(0, num(b.custos?.[k])))]));
+  return { ref: str(b.ref, 80), fornecedor: str(b.fornecedor), origem: str(b.origem, 80), data: isDate(b.data) ? b.data : todayStr(), eta: isDate(b.eta) ? b.eta : null,
+    status: IMP_ST.includes(b.status) ? b.status : 'Pedido', itens, custos };
+}
+app.post('/api/imports', auth, sup, h(async (req, res) => {
+  const d = importBody(req.body);
+  await pool.query(`insert into imports (ref,fornecedor,origem,data,eta,status,itens,custos,ts,criado_por) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+    [d.ref, d.fornecedor, d.origem, d.data, d.eta, d.status, JSON.stringify(d.itens), JSON.stringify(d.custos), Date.now(), req.user.nome]);
+  bump(); res.json({ ok: true });
+}));
+app.put('/api/imports/:id', auth, sup, h(async (req, res) => {
+  const d = importBody(req.body);
+  const r = await pool.query(`update imports set ref=$1,fornecedor=$2,origem=$3,data=$4,eta=$5,status=$6,itens=$7,custos=$8 where id=$9 and not recebida`,
+    [d.ref, d.fornecedor, d.origem, d.data, d.eta, d.status, JSON.stringify(d.itens), JSON.stringify(d.custos), +req.params.id]);
+  if (!r.rowCount) bad('Importação não encontrada ou já recebida.');
+  bump(); res.json({ ok: true });
+}));
+app.post('/api/imports/:id/status', auth, sup, h(async (req, res) => {
+  if (!IMP_ST.includes(req.body.status)) bad('Situação inválida.');
+  await pool.query('update imports set status=$1 where id=$2 and not recebida', [req.body.status, +req.params.id]);
+  bump(); res.json({ ok: true });
+}));
+app.post('/api/imports/:id/receive', auth, sup, h(async (req, res) => {
+  await tx(async c => {
+    const { rows } = await c.query('select * from imports where id=$1 for update', [+req.params.id]);
+    const imp = rows[0]; if (!imp) bad('Importação não encontrada.'); if (imp.recebida) bad('Esta importação já foi recebida.');
+    const fob = imp.itens.reduce((a, i) => a + i.qtd * i.fob, 0);
+    const extra = IMP_COST.reduce((a, k) => a + (+imp.custos[k] || 0), 0);
+    const fator = fob ? (fob + extra) / fob : 1;
+    for (const i of imp.itens) await c.query('update products set estoque_py = estoque_py + $1, custo = $2 where id=$3', [i.qtd, r2(i.fob * fator), i.pid]);
+    await c.query(`update imports set recebida=true, status='Recebida', recebida_em=$1, recebida_por=$2, custo_total=$3 where id=$4`, [Date.now(), req.user.nome, r2(fob + extra), imp.id]);
+  });
+  bump(); res.json({ ok: true });
+}));
+
+// ---------- vendedores / usuários ----------
+function userBody(b, isNew) {
+  const nome = str(b.nome, 80), login = str(b.login, 40).toLowerCase();
+  if (!nome) bad('Informe o nome.');
+  if (!/^[a-z0-9._-]{3,40}$/.test(login)) bad('O usuário deve ter de 3 a 40 letras minúsculas, números, ponto, hífen ou sublinhado, sem espaços.');
+  const senha = String(b.senha || '');
+  if (isNew && senha.length < 8) bad('A senha precisa ter pelo menos 8 caracteres.');
+  if (!isNew && senha && senha.length < 8) bad('A nova senha precisa ter pelo menos 8 caracteres.');
+  return { nome, login, senha, papel: b.papel === 'supervisor' ? 'supervisor' : 'vendedor', loja: ['PY', 'SP', 'ambas'].includes(b.loja) ? b.loja : 'PY',
+    telefone: str(b.telefone, 40), documento: str(b.documento, 40), comissao: Math.min(100, Math.max(0, num(b.comissao))) };
+}
+const dupLogin = e => { if (e.code === '23505') throw new HttpError(400, 'Já existe um usuário com este login.'); throw e; };
+app.post('/api/users', auth, sup, h(async (req, res) => {
+  const d = userBody(req.body, true);
+  await pool.query(`insert into users (login,senha_hash,nome,papel,loja,telefone,documento,comissao) values ($1,$2,$3,$4,$5,$6,$7,$8)`,
+    [d.login, await bcrypt.hash(d.senha, 12), d.nome, d.papel, d.loja, d.telefone, d.documento, d.comissao]).catch(dupLogin);
+  bump(); res.json({ ok: true });
+}));
+app.put('/api/users/:id', auth, sup, h(async (req, res) => {
+  const id = +req.params.id, d = userBody(req.body, false);
+  if (id === req.user.id && d.papel !== 'supervisor') bad('Você não pode remover sua própria função de supervisor.');
+  await pool.query(`update users set login=$1,nome=$2,papel=$3,loja=$4,telefone=$5,documento=$6,comissao=$7 where id=$8`,
+    [d.login, d.nome, d.papel, d.loja, d.telefone, d.documento, d.comissao, id]).catch(dupLogin);
+  if (d.senha) await pool.query('update users set senha_hash=$1 where id=$2', [await bcrypt.hash(d.senha, 12), id]);
+  bump(); res.json({ ok: true });
+}));
+app.post('/api/users/:id/toggle', auth, sup, h(async (req, res) => {
+  const id = +req.params.id;
+  if (id === req.user.id) bad('Você não pode desativar o seu próprio usuário.');
+  await pool.query('update users set ativo = not ativo where id=$1', [id]);
+  await pool.query(`delete from sessions where (sess->>'uid')::int = $1`, [id]).catch(() => {});
+  bump(); res.json({ ok: true });
+}));
+
+// ---------- static + errors ----------
+app.get('/health', (req, res) => res.json({ ok: true }));
+app.use(express.static(path.join(__dirname, 'public'), { index: 'index.html', maxAge: PROD ? '1h' : 0 }));
+app.use('/api', (req, res) => res.status(404).json({ erro: 'Rota não encontrada.' }));
+app.use((err, req, res, next) => {
+  if (err instanceof HttpError) return res.status(err.status).json({ erro: err.message });
+  console.error(err);
+  res.status(500).json({ erro: 'Erro interno. Tente novamente.' });
+});
+
+// ---------- boot ----------
+async function seedAdmin() {
+  const { rows } = await pool.query('select count(*)::int n from users');
+  if (rows[0].n > 0) return;
+  const login = str(process.env.ADMIN_LOGIN || 'admin', 40).toLowerCase();
+  let senha = process.env.ADMIN_PASSWORD;
+  let generated = false;
+  if (!senha || senha.length < 8) { senha = crypto.randomBytes(9).toString('base64url'); generated = true; }
+  await pool.query(`insert into users (login,senha_hash,nome,papel,loja) values ($1,$2,$3,'supervisor','ambas')`,
+    [login, await bcrypt.hash(senha, 12), str(process.env.ADMIN_NOME || 'Administrador', 80)]);
+  console.log(`Primeiro supervisor criado: usuário "${login}".` + (generated ? ` Senha gerada: ${senha} (troque após entrar).` : ' Senha: a definida em ADMIN_PASSWORD.'));
+}
+
+migrate().then(seedAdmin).then(() => {
+  app.listen(PORT, () => console.log(`Sistema TRW rodando na porta ${PORT}`));
+}).catch(e => { console.error('Falha ao iniciar:', e); process.exit(1); });

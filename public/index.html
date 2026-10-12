@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TRW · Gestão Comercial</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230d2b45'/%3E%3Ctext x='16' y='21' font-family='Arial' font-weight='700' font-size='12' fill='%23fff' text-anchor='middle'%3ETRW%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+
+<!-- LOGIN -->
+<div class="login-screen" id="login" hidden>
+  <div class="login-side">
+    <div class="logo-lg"><span class="mark">TRW</span></div>
+    <h1>Gestão comercial<br>Paraguay · Brasil</h1>
+    <p>Vendas, estoque, compras e importações em um só lugar, com valores em dólar e real atualizados pela cotação do dia.</p>
+  </div>
+  <form class="login-card" id="loginForm" autocomplete="on">
+    <h2>Entrar</h2>
+    <p class="hint">Use o usuário e a senha fornecidos pelo supervisor.</p>
+    <label class="field"><span class="lbl">Usuário</span><input type="text" id="lUser" name="username" autocomplete="username" required autofocus></label>
+    <label class="field"><span class="lbl">Senha</span><input type="password" id="lPass" name="password" autocomplete="current-password" required></label>
+    <div class="form-err" id="lErr" hidden></div>
+    <button class="btn primary go" type="submit" id="lGo">Entrar</button>
+  </form>
+</div>
+
+<!-- APP -->
+<div class="app" id="app" hidden>
+  <aside class="side" id="side">
+    <div class="side-brand"><span class="mark">TRW</span><div><b>Gestão Comercial</b><small>Paraguay · Brasil</small></div></div>
+    <nav class="nav" id="nav">
+      <div class="nav-g" data-sup><span>Visão geral</span>
+        <button data-tab="dash"><i class="ic">▦</i>Dashboard</button>
+      </div>
+      <div class="nav-g"><span>Vendas</span>
+        <button data-tab="PY"><i class="ic flag-py"></i>Vendas Paraguay</button>
+        <button data-tab="SP"><i class="ic flag-br"></i>Vendas São Paulo</button>
+        <button data-tab="hist"><i class="ic">≡</i>Histórico de vendas</button>
+      </div>
+      <div class="nav-g"><span>Estoque</span>
+        <button data-tab="stock"><i class="ic">▤</i>Estoque total</button>
+        <button data-tab="prod"><i class="ic">◫</i>Produtos</button>
+        <button data-tab="buy" data-sup><i class="ic">↓</i>Compras e entradas</button>
+        <button data-tab="imp" data-sup><i class="ic">⚓</i>Importações</button>
+      </div>
+      <div class="nav-g" data-sup><span>Administração</span>
+        <button data-tab="fx"><i class="ic">$</i>Câmbio</button>
+        <button data-tab="users"><i class="ic">☺</i>Vendedores</button>
+      </div>
+    </nav>
+    <div class="side-foot">
+      <div class="me"><div class="avatar" id="meAv"></div><div><b id="meName"></b><small id="meRole"></small></div></div>
+      <div class="row"><button class="btn ghost small" id="pwBtn">Alterar senha</button><button class="btn ghost small" id="logout">Sair</button></div>
+    </div>
+  </aside>
+
+  <div class="main-col">
+    <header class="topbar">
+      <button class="btn ghost menu-btn" id="menuBtn" aria-label="Abrir menu">☰</button>
+      <h1 id="pageTitle">Dashboard</h1>
+      <div class="rate" title="Cotação do dólar usada em todas as conversões">
+        <span class="lbl">US$ 1 =</span><span class="v" id="rateV">—</span><span class="when" id="rateWhen"></span>
+        <button class="btn small" id="rateBtn" data-sup>Atualizar</button>
+      </div>
+      <span class="live" id="live" title="Sincronização com o servidor"><i></i><span>Online</span></span>
+    </header>
+
+    <main id="main">
+      <div class="banner" id="noRate" hidden>Defina a cotação do dólar para liberar as vendas e as conversões. <button class="btn small" data-goto="fx" data-sup>Definir agora</button></div>
+
+      <!-- DASHBOARD -->
+      <section class="pane" id="pane-dash" hidden>
+        <div class="row between">
+          <div class="seg" id="period"><button data-p="today">Hoje</button><button data-p="7">7 dias</button><button data-p="month">Mês</button><button data-p="30">30 dias</button><button data-p="90">90 dias</button><button data-p="year">Ano</button></div>
+          <div class="seg" id="dispCur"><button data-c="USD">US$</button><button data-c="BRL">R$</button></div>
+        </div>
+        <div class="kpis" id="kpis"></div>
+        <div class="card">
+          <div class="row between"><h2 id="chartTitle">Vendas por dia</h2><div class="legend"><span><i style="background:var(--py)"></i>Paraguay</span><span><i style="background:var(--sp)"></i>São Paulo</span></div></div>
+          <div id="chart" class="chart"></div>
+        </div>
+        <div class="grid2">
+          <div class="card"><h2>Produtos mais vendidos</h2><div class="bars" id="topProd"></div></div>
+          <div class="card"><h2>Ranking de vendedores</h2><div class="bars" id="topSeller"></div></div>
+          <div class="card"><h2>Formas de pagamento</h2><div class="bars" id="payMix"></div></div>
+          <div class="card"><h2>Validade próxima</h2><div class="tablewrap" id="expiring"></div></div>
+          <div class="card"><h2>Estoque baixo</h2><div class="tablewrap" id="lowStock"></div></div>
+          <div class="card"><h2>Importações em andamento</h2><div class="tablewrap" id="dashImp"></div></div>
+        </div>
+        <div class="card"><h2>Últimas vendas</h2><div class="tablewrap" id="lastSales"></div></div>
+      </section>
+
+      <section class="pane" id="pane-PY" hidden></section>
+      <section class="pane" id="pane-SP" hidden></section>
+
+      <!-- HISTORY -->
+      <section class="pane" id="pane-hist" hidden>
+        <div class="toolbar">
+          <select id="hLoja"><option value="">Todas as lojas</option><option value="PY">Paraguay</option><option value="SP">São Paulo</option></select>
+          <label class="inl"><span class="lbl">De</span><input type="date" id="hFrom"></label>
+          <label class="inl"><span class="lbl">Até</span><input type="date" id="hTo"></label>
+          <a class="btn" id="csvBtn" data-sup href="#">Exportar CSV</a>
+        </div>
+        <div class="kpis" id="hKpis"></div>
+        <div class="card"><div class="tablewrap" id="hTable"></div></div>
+      </section>
+
+      <!-- STOCK -->
+      <section class="pane" id="pane-stock" hidden>
+        <div class="toolbar"><input type="search" id="sFilter" placeholder="Filtrar por nome, código ou lote"></div>
+        <div class="kpis" id="sKpis"></div>
+        <div class="card"><div class="tablewrap" id="stockList"></div></div>
+      </section>
+
+      <!-- PRODUCTS -->
+      <section class="pane" id="pane-prod" hidden>
+        <div class="card" data-sup id="pFormCard">
+          <h2 id="pFormTitle">Novo produto</h2>
+          <div class="fields">
+            <label class="field"><span class="lbl">Código</span><input type="text" id="pCode"></label>
+            <label class="field span2"><span class="lbl">Nome</span><input type="text" id="pName"></label>
+            <label class="field"><span class="lbl">Lote</span><input type="text" id="pLote"></label>
+            <label class="field"><span class="lbl">Validade</span><input type="date" id="pVal"></label>
+            <label class="field"><span class="lbl">Custo (US$)</span><input type="number" id="pCost" step="0.01" min="0"></label>
+            <label class="field"><span class="lbl">Preço de venda (US$)</span><input type="number" id="pPriceUsd" step="0.01" min="0"></label>
+            <label class="field"><span class="lbl">Preço fixo em R$ (opcional)</span><input type="number" id="pPriceBrl" step="0.01" min="0" placeholder="Automático pelo dólar"></label>
+            <label class="field"><span class="lbl">Estoque Paraguay</span><input type="number" id="pStPY" step="1"></label>
+            <label class="field"><span class="lbl">Estoque São Paulo</span><input type="number" id="pStSP" step="1"></label>
+          </div>
+          <div class="row actions"><button class="btn primary" id="pSave">Salvar produto</button><button class="btn" id="pCancel" hidden>Cancelar edição</button><span class="hint">Sem preço fixo em R$, o valor em reais acompanha o dólar automaticamente.</span></div>
+        </div>
+        <div class="card">
+          <div class="row between"><h2>Produtos cadastrados</h2><input type="search" id="pFilter" placeholder="Filtrar por nome, código ou lote" class="w280"></div>
+          <div class="tablewrap" id="prodList"></div>
+        </div>
+      </section>
+
+      <!-- PURCHASES -->
+      <section class="pane" id="pane-buy" hidden>
+        <div class="card">
+          <h2>Nova entrada</h2>
+          <div class="fields">
+            <label class="field"><span class="lbl">Fornecedor</span><input type="text" id="bSup" placeholder="Nome do fornecedor"></label>
+            <label class="field"><span class="lbl">Entrada no estoque de</span><select id="bLoja"><option value="PY">Paraguay</option><option value="SP">São Paulo</option></select></label>
+            <label class="field"><span class="lbl">Moeda da compra</span><select id="bCur"><option value="USD">Dólar (US$)</option><option value="BRL">Real (R$)</option></select></label>
+            <label class="field"><span class="lbl">Data</span><input type="date" id="bDate"></label>
+          </div>
+          <div class="fields frete" id="bFreteBox" hidden>
+            <label class="field"><span class="lbl">Freteiro</span><input type="text" id="bFreteiro" placeholder="Nome do freteiro"></label>
+            <label class="field"><span class="lbl">Frete (%)</span><input type="number" id="bFrete" min="0" step="0.01" placeholder="Ex.: 8"></label>
+            <div class="field hint end">A % do frete é somada ao custo de cada produto que entra no estoque de São Paulo.</div>
+          </div>
+          <div class="fields additem">
+            <label class="field"><span class="lbl">Produto</span><select id="bProd"></select></label>
+            <label class="field"><span class="lbl">Quantidade</span><input type="number" id="bQty" min="1" value="1"></label>
+            <label class="field"><span class="lbl">Custo unitário</span><input type="number" id="bCost" min="0" step="0.01"></label>
+            <button class="btn" id="bAdd">Adicionar</button>
+          </div>
+          <div class="tablewrap"><table><thead><tr><th>Produto</th><th class="r">Qtd</th><th class="r">Custo un.</th><th class="r" id="bCostFH" hidden>Custo c/ frete</th><th class="r">Subtotal</th><th></th></tr></thead><tbody id="bItems"></tbody></table></div>
+          <div class="row between actions"><div><span class="lbl">Total da entrada</span><div class="num big" id="bTotal">—</div><div class="hint num" id="bTotalSub"></div></div><button class="btn primary" id="bSave">Registrar entrada</button></div>
+        </div>
+        <div class="card"><h2>Entradas registradas</h2><div class="tablewrap" id="buyList"></div></div>
+      </section>
+
+      <!-- IMPORTS -->
+      <section class="pane" id="pane-imp" hidden>
+        <div class="row between"><span class="pill py">Destino Paraguay · valores em dólar (US$)</span></div>
+        <div class="kpis" id="iKpis"></div>
+        <div class="card" id="iFormCard">
+          <h2 id="iFormTitle">Nova importação</h2>
+          <div class="fields">
+            <label class="field"><span class="lbl">Referência / nº do processo</span><input type="text" id="iRef" placeholder="Ex.: IMP-2026-014"></label>
+            <label class="field"><span class="lbl">Fornecedor</span><input type="text" id="iSup"></label>
+            <label class="field"><span class="lbl">País de origem</span><input type="text" id="iOrig" placeholder="Ex.: China"></label>
+            <label class="field"><span class="lbl">Data do pedido</span><input type="date" id="iDate"></label>
+            <label class="field"><span class="lbl">Previsão de chegada</span><input type="date" id="iEta"></label>
+            <label class="field"><span class="lbl">Situação</span><select id="iStatus"></select></label>
+          </div>
+          <div class="fields additem">
+            <label class="field"><span class="lbl">Produto</span><select id="iProd"></select></label>
+            <label class="field"><span class="lbl">Quantidade</span><input type="number" id="iQty" min="1" value="1"></label>
+            <label class="field"><span class="lbl">Custo FOB unit. (US$)</span><input type="number" id="iFob" min="0" step="0.01"></label>
+            <button class="btn" id="iAdd">Adicionar</button>
+          </div>
+          <div class="tablewrap"><table><thead><tr><th>Produto</th><th class="r">Qtd</th><th class="r">FOB un.</th><th class="r">FOB total</th><th class="r">Custo final un.</th><th></th></tr></thead><tbody id="iItems"></tbody></table></div>
+          <h3 class="lbl sub">Custos adicionais (US$)</h3>
+          <div class="fields">
+            <label class="field"><span class="lbl">Frete internacional</span><input type="number" id="iFrete" min="0" step="0.01"></label>
+            <label class="field"><span class="lbl">Seguro</span><input type="number" id="iSeg" min="0" step="0.01"></label>
+            <label class="field"><span class="lbl">Despachante / aduana</span><input type="number" id="iDesp" min="0" step="0.01"></label>
+            <label class="field"><span class="lbl">Impostos e taxas</span><input type="number" id="iTax" min="0" step="0.01"></label>
+            <label class="field"><span class="lbl">Frete interno / outros</span><input type="number" id="iOut" min="0" step="0.01"></label>
+          </div>
+          <div class="row between actions"><div class="row sums" id="iSum"></div><div class="row"><button class="btn" id="iCancel" hidden>Cancelar edição</button><button class="btn primary" id="iSave">Salvar importação</button></div></div>
+          <p class="hint">Os custos adicionais são rateados proporcionalmente ao valor FOB de cada produto. Ao dar entrada, as quantidades entram no estoque do Paraguay e o custo do produto passa a ser o custo final da importação.</p>
+        </div>
+        <div class="card"><h2>Processos de importação</h2><div class="tablewrap" id="impList"></div></div>
+      </section>
+
+      <!-- FX -->
+      <section class="pane" id="pane-fx" hidden>
+        <div class="grid2">
+          <div class="card">
+            <h2>Atualizar cotação do dólar</h2>
+            <p class="hint">Ao salvar, todos os valores do sistema são recalculados em todos os computadores.</p>
+            <div class="row end">
+              <label class="field w200"><span class="lbl">US$ 1 = R$</span><input type="number" id="fxIn" step="0.0001" min="0" class="num bigin"></label>
+              <button class="btn primary" id="fxSave">Salvar cotação</button>
+            </div>
+            <div id="fxNow" class="hint"></div>
+          </div>
+          <div class="card"><h2>Variação recente</h2><div id="fxChart" class="chart"></div></div>
+        </div>
+        <div class="card"><h2>Histórico de cotações</h2><div class="tablewrap" id="fxList"></div></div>
+      </section>
+
+      <!-- USERS -->
+      <section class="pane" id="pane-users" hidden>
+        <div class="card">
+          <h2 id="uFormTitle">Novo vendedor</h2>
+          <div class="fields">
+            <label class="field"><span class="lbl">Nome completo</span><input type="text" id="uName"></label>
+            <label class="field"><span class="lbl">Usuário de acesso</span><input type="text" id="uLogin" autocomplete="off" placeholder="ex.: maria.silva"></label>
+            <label class="field"><span class="lbl" id="uPassLbl">Senha (mín. 8 caracteres)</span><input type="password" id="uPass" autocomplete="new-password"></label>
+            <label class="field"><span class="lbl">Função</span><select id="uRole"><option value="vendedor">Vendedor</option><option value="supervisor">Supervisor</option></select></label>
+            <label class="field"><span class="lbl">Loja</span><select id="uLoja"><option value="PY">Paraguay</option><option value="SP">São Paulo</option><option value="ambas">Ambas</option></select></label>
+            <label class="field"><span class="lbl">Telefone / WhatsApp</span><input type="text" id="uTel"></label>
+            <label class="field"><span class="lbl">Documento (CI / CPF)</span><input type="text" id="uDoc"></label>
+            <label class="field"><span class="lbl">Comissão (%)</span><input type="number" id="uCom" min="0" max="100" step="0.1" placeholder="0"></label>
+          </div>
+          <div class="row actions"><button class="btn primary" id="uSave">Salvar vendedor</button><button class="btn" id="uCancel" hidden>Cancelar edição</button></div>
+        </div>
+        <div class="card"><div class="row between"><h2>Vendedores cadastrados</h2><span class="hint">Vendas e comissão do mês atual</span></div><div class="tablewrap" id="userList"></div></div>
+      </section>
+    </main>
+  </div>
+</div>
+
+<!-- change password dialog -->
+<div class="modal" id="pwModal" hidden>
+  <form class="card modal-card" id="pwForm">
+    <h2>Alterar minha senha</h2>
+    <label class="field"><span class="lbl">Senha atual</span><input type="password" id="pwOld" autocomplete="current-password" required></label>
+    <label class="field"><span class="lbl">Nova senha (mín. 8 caracteres)</span><input type="password" id="pwNew" autocomplete="new-password" required minlength="8"></label>
+    <div class="row actions"><button class="btn primary" type="submit">Salvar nova senha</button><button class="btn" type="button" id="pwCancel">Cancelar</button></div>
+  </form>
+</div>
+
+<div id="toastHost"></div>
+<script src="/app.js"></script>
+</body>
+</html>
