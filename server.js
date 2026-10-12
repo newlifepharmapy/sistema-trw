@@ -81,10 +81,18 @@ async function loadUser(req, res, next) {
   next();
 }
 const auth = h(loadUser);
-const sup = (req, res, next) => (req.user.papel === 'supervisor' ? next() : res.status(403).json({ erro: 'Apenas supervisores podem fazer isso.' }));
-const canStore = (u, l) => u.papel === 'supervisor' || u.loja === 'ambas' || u.loja === l;
+// permissions: each user has a list chosen by whoever manages users; users saved before this existed get the defaults of their role
+const PERMS = ['dash', 'vendas_PY', 'vendas_SP', 'cancelar', 'exportar', 'produtos', 'compras', 'importacoes', 'cambio', 'usuarios'];
+function defaultPerms(papel, loja) {
+  if (papel === 'supervisor') return [...PERMS];
+  return loja === 'ambas' ? ['vendas_PY', 'vendas_SP'] : ['vendas_' + (loja === 'SP' ? 'SP' : 'PY')];
+}
+const perms = u => (Array.isArray(u.permissoes) ? u.permissoes.filter(p => PERMS.includes(p)) : defaultPerms(u.papel, u.loja));
+const has = (u, p) => perms(u).includes(p);
+const need = p => (req, res, next) => (has(req.user, p) ? next() : res.status(403).json({ erro: 'Você não tem permissão para isso. Peça a um supervisor.' }));
+const canStore = (u, l) => has(u, 'vendas_' + l);
 
-const pubUser = u => ({ id: u.id, login: u.login, nome: u.nome, papel: u.papel, loja: u.loja, telefone: u.telefone, documento: u.documento, comissao: u.comissao, ativo: u.ativo });
+const pubUser = u => ({ id: u.id, login: u.login, nome: u.nome, papel: u.papel, loja: u.loja, telefone: u.telefone, documento: u.documento, comissao: u.comissao, ativo: u.ativo, permissoes: perms(u) });
 const mapProduct = p => ({ id: p.id, codigo: p.codigo, nome: p.nome, lote: p.lote, validade: p.validade || '', custo: p.custo, precoUsd: p.preco_usd, precoBrl: p.preco_brl, estoque: { PY: p.estoque_py, SP: p.estoque_sp } });
 const mapSale = s => ({ id: s.id, loja: s.loja, data: s.data, ts: s.ts, moeda: s.moeda, total: s.total, cotacao: s.cotacao, pagamento: s.pagamento, cliente: s.cliente, itens: s.itens, custoUsd: s.custo_usd, vendedorId: s.vendedor_id, vendedorNome: s.vendedor_nome, cancelada: s.cancelada, canceladaPor: s.cancelada_por });
 const mapPurchase = p => ({ id: p.id, data: p.data, ts: p.ts, fornecedor: p.fornecedor, loja: p.loja, moeda: p.moeda, itens: p.itens, subtotal: p.subtotal, fretePct: p.frete_pct, freteValor: p.frete_valor, freteiro: p.freteiro, total: p.total, cotacao: p.cotacao, criadoPor: p.criado_por });
@@ -163,40 +171,41 @@ app.post('/api/me/senha', auth, h(async (req, res) => {
 app.get('/api/version', auth, (req, res) => res.json({ v: version }));
 
 app.get('/api/data', auth, h(async (req, res) => {
-  const u = req.user, isSup = u.papel === 'supervisor';
+  const u = req.user, allSales = has(u, 'dash');
+  const stores = LOJAS.filter(l => canStore(u, l));
   const since = Date.now() - 400 * 864e5;
   const [settings, hist, products, sales] = await Promise.all([
     pool.query('select * from settings where id=1'),
     pool.query('select * from rate_history order by dia desc limit 200'),
     pool.query('select * from products where ativo order by nome'),
-    isSup
+    allSales
       ? pool.query('select * from sales where ts >= $1 order by ts desc', [since])
-      : pool.query('select * from sales where ts >= $1 and (loja = $2 or $2 = \'ambas\') order by ts desc', [since, u.loja]),
+      : pool.query('select * from sales where ts >= $1 and loja = any($2) order by ts desc', [since, stores]),
   ]);
   const st = settings.rows[0];
   const out = {
     v: version,
+    me: pubUser(u),
     settings: st ? { cotacao: st.cotacao, atualizadoEm: st.atualizado_em, atualizadoPor: st.atualizado_por } : null,
     historico: hist.rows.map(r => ({ d: r.dia, v: r.valor, por: r.por, ts: r.ts })),
     products: products.rows.map(mapProduct),
     sales: sales.rows.map(mapSale),
     purchases: [], imports: [], users: [],
   };
-  if (isSup) {
-    const [p, i, us] = await Promise.all([
-      pool.query('select * from purchases where ts >= $1 order by ts desc', [since]),
-      pool.query('select * from imports where ts >= $1 or not recebida order by ts desc', [since]),
-      pool.query('select * from users order by nome'),
-    ]);
-    out.purchases = p.rows.map(mapPurchase);
-    out.imports = i.rows.map(mapImport);
-    out.users = us.rows.map(pubUser);
-  }
+  const none = Promise.resolve({ rows: [] });
+  const [p, i, us] = await Promise.all([
+    has(u, 'compras') ? pool.query('select * from purchases where ts >= $1 order by ts desc', [since]) : none,
+    has(u, 'importacoes') || has(u, 'dash') ? pool.query('select * from imports where ts >= $1 or not recebida order by ts desc', [since]) : none,
+    has(u, 'usuarios') ? pool.query('select * from users order by nome') : none,
+  ]);
+  out.purchases = p.rows.map(mapPurchase);
+  out.imports = i.rows.map(mapImport);
+  out.users = us.rows.map(pubUser);
   res.json(out);
 }));
 
 // ---------- câmbio ----------
-app.post('/api/cotacao', auth, sup, h(async (req, res) => {
+app.post('/api/cotacao', auth, need('cambio'), h(async (req, res) => {
   const v = num(req.body.valor);
   if (!(v > 0 && v < 1000)) bad('Informe uma cotação válida, por exemplo 5,42.');
   const now = Date.now(), dia = todayStr();
@@ -220,19 +229,19 @@ async function codeTaken(codigo, id) {
   const { rows } = await pool.query('select 1 from products where ativo and lower(codigo)=lower($1) and id <> $2', [codigo, id || 0]);
   return rows.length > 0;
 }
-app.post('/api/products', auth, sup, h(async (req, res) => {
+app.post('/api/products', auth, need('produtos'), h(async (req, res) => {
   const v = productBody(req.body);
   if (await codeTaken(v[0])) bad('Já existe um produto com este código.');
   const { rows } = await pool.query(`insert into products (codigo,nome,lote,validade,custo,preco_usd,preco_brl,estoque_py,estoque_sp) values ($1,$2,$3,$4,$5,$6,$7,$8,$9) returning id`, v);
   bump(); res.json({ id: rows[0].id });
 }));
-app.put('/api/products/:id', auth, sup, h(async (req, res) => {
+app.put('/api/products/:id', auth, need('produtos'), h(async (req, res) => {
   const v = productBody(req.body), id = +req.params.id;
   if (await codeTaken(v[0], id)) bad('Já existe um produto com este código.');
   await pool.query(`update products set codigo=$1,nome=$2,lote=$3,validade=$4,custo=$5,preco_usd=$6,preco_brl=$7,estoque_py=$8,estoque_sp=$9 where id=$10`, [...v, id]);
   bump(); res.json({ ok: true });
 }));
-app.delete('/api/products/:id', auth, sup, h(async (req, res) => {
+app.delete('/api/products/:id', auth, need('produtos'), h(async (req, res) => {
   await pool.query('update products set ativo=false where id=$1', [+req.params.id]);
   bump(); res.json({ ok: true });
 }));
@@ -271,7 +280,7 @@ app.post('/api/sales', auth, h(async (req, res) => {
   });
   bump(); res.json({ sale: mapSale(out) });
 }));
-app.post('/api/sales/:id/cancel', auth, sup, h(async (req, res) => {
+app.post('/api/sales/:id/cancel', auth, need('cancelar'), h(async (req, res) => {
   await tx(async c => {
     const { rows } = await c.query('select * from sales where id=$1 for update', [+req.params.id]);
     const s = rows[0]; if (!s) bad('Venda não encontrada.'); if (s.cancelada) bad('Esta venda já foi cancelada.');
@@ -284,7 +293,7 @@ app.post('/api/sales/:id/cancel', auth, sup, h(async (req, res) => {
 
 const csvq = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
 const br2 = n => (+n || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-app.get('/api/export/vendas.csv', auth, sup, h(async (req, res) => {
+app.get('/api/export/vendas.csv', auth, need('exportar'), h(async (req, res) => {
   const { loja, de, ate } = req.query;
   const p = [], w = [];
   if (LOJAS.includes(loja)) { p.push(loja); w.push(`loja=$${p.length}`); }
@@ -305,7 +314,7 @@ app.get('/api/export/vendas.csv', auth, sup, h(async (req, res) => {
 }));
 
 // ---------- compras e entradas ----------
-app.post('/api/purchases', auth, sup, h(async (req, res) => {
+app.post('/api/purchases', auth, need('compras'), h(async (req, res) => {
   const b = req.body;
   const loja = LOJAS.includes(b.loja) ? b.loja : bad('Loja inválida.');
   const moeda = MOEDAS.includes(b.moeda) ? b.moeda : bad('Moeda inválida.');
@@ -341,25 +350,25 @@ function importBody(b) {
   return { ref: str(b.ref, 80), fornecedor: str(b.fornecedor), origem: str(b.origem, 80), data: isDate(b.data) ? b.data : todayStr(), eta: isDate(b.eta) ? b.eta : null,
     status: IMP_ST.includes(b.status) ? b.status : 'Pedido', itens, custos };
 }
-app.post('/api/imports', auth, sup, h(async (req, res) => {
+app.post('/api/imports', auth, need('importacoes'), h(async (req, res) => {
   const d = importBody(req.body);
   await pool.query(`insert into imports (ref,fornecedor,origem,data,eta,status,itens,custos,ts,criado_por) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
     [d.ref, d.fornecedor, d.origem, d.data, d.eta, d.status, JSON.stringify(d.itens), JSON.stringify(d.custos), Date.now(), req.user.nome]);
   bump(); res.json({ ok: true });
 }));
-app.put('/api/imports/:id', auth, sup, h(async (req, res) => {
+app.put('/api/imports/:id', auth, need('importacoes'), h(async (req, res) => {
   const d = importBody(req.body);
   const r = await pool.query(`update imports set ref=$1,fornecedor=$2,origem=$3,data=$4,eta=$5,status=$6,itens=$7,custos=$8 where id=$9 and not recebida`,
     [d.ref, d.fornecedor, d.origem, d.data, d.eta, d.status, JSON.stringify(d.itens), JSON.stringify(d.custos), +req.params.id]);
   if (!r.rowCount) bad('Importação não encontrada ou já recebida.');
   bump(); res.json({ ok: true });
 }));
-app.post('/api/imports/:id/status', auth, sup, h(async (req, res) => {
+app.post('/api/imports/:id/status', auth, need('importacoes'), h(async (req, res) => {
   if (!IMP_ST.includes(req.body.status)) bad('Situação inválida.');
   await pool.query('update imports set status=$1 where id=$2 and not recebida', [req.body.status, +req.params.id]);
   bump(); res.json({ ok: true });
 }));
-app.post('/api/imports/:id/receive', auth, sup, h(async (req, res) => {
+app.post('/api/imports/:id/receive', auth, need('importacoes'), h(async (req, res) => {
   await tx(async c => {
     const { rows } = await c.query('select * from imports where id=$1 for update', [+req.params.id]);
     const imp = rows[0]; if (!imp) bad('Importação não encontrada.'); if (imp.recebida) bad('Esta importação já foi recebida.');
@@ -380,25 +389,29 @@ function userBody(b, isNew) {
   const senha = String(b.senha || '');
   if (isNew && senha.length < 4) bad('A senha precisa ter pelo menos 4 caracteres.');
   if (!isNew && senha && senha.length < 4) bad('A nova senha precisa ter pelo menos 4 caracteres.');
-  return { nome, login, senha, papel: b.papel === 'supervisor' ? 'supervisor' : 'vendedor', loja: ['PY', 'SP', 'ambas'].includes(b.loja) ? b.loja : 'PY',
+  const papel = b.papel === 'supervisor' ? 'supervisor' : 'vendedor';
+  const permissoes = Array.isArray(b.permissoes) ? PERMS.filter(p => b.permissoes.includes(p)) : defaultPerms(papel, b.loja);
+  // the store shown next to the name follows the sale permissions
+  const py = permissoes.includes('vendas_PY'), sp = permissoes.includes('vendas_SP');
+  return { nome, login, senha, papel, loja: py && sp ? 'ambas' : sp ? 'SP' : 'PY', permissoes,
     telefone: str(b.telefone, 40), documento: str(b.documento, 40), comissao: Math.min(100, Math.max(0, num(b.comissao))) };
 }
 const dupLogin = e => { if (e.code === '23505') throw new HttpError(400, 'Já existe um usuário com este login.'); throw e; };
-app.post('/api/users', auth, sup, h(async (req, res) => {
+app.post('/api/users', auth, need('usuarios'), h(async (req, res) => {
   const d = userBody(req.body, true);
-  await pool.query(`insert into users (login,senha_hash,nome,papel,loja,telefone,documento,comissao) values ($1,$2,$3,$4,$5,$6,$7,$8)`,
-    [d.login, await bcrypt.hash(d.senha, 12), d.nome, d.papel, d.loja, d.telefone, d.documento, d.comissao]).catch(dupLogin);
+  await pool.query(`insert into users (login,senha_hash,nome,papel,loja,telefone,documento,comissao,permissoes) values ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+    [d.login, await bcrypt.hash(d.senha, 12), d.nome, d.papel, d.loja, d.telefone, d.documento, d.comissao, JSON.stringify(d.permissoes)]).catch(dupLogin);
   bump(); res.json({ ok: true });
 }));
-app.put('/api/users/:id', auth, sup, h(async (req, res) => {
+app.put('/api/users/:id', auth, need('usuarios'), h(async (req, res) => {
   const id = +req.params.id, d = userBody(req.body, false);
-  if (id === req.user.id && d.papel !== 'supervisor') bad('Você não pode remover sua própria função de supervisor.');
-  await pool.query(`update users set login=$1,nome=$2,papel=$3,loja=$4,telefone=$5,documento=$6,comissao=$7 where id=$8`,
-    [d.login, d.nome, d.papel, d.loja, d.telefone, d.documento, d.comissao, id]).catch(dupLogin);
+  if (id === req.user.id && !d.permissoes.includes('usuarios')) bad('Você não pode tirar de si mesmo a permissão de gerenciar usuários.');
+  await pool.query(`update users set login=$1,nome=$2,papel=$3,loja=$4,telefone=$5,documento=$6,comissao=$7,permissoes=$8 where id=$9`,
+    [d.login, d.nome, d.papel, d.loja, d.telefone, d.documento, d.comissao, JSON.stringify(d.permissoes), id]).catch(dupLogin);
   if (d.senha) await pool.query('update users set senha_hash=$1 where id=$2', [await bcrypt.hash(d.senha, 12), id]);
   bump(); res.json({ ok: true });
 }));
-app.post('/api/users/:id/toggle', auth, sup, h(async (req, res) => {
+app.post('/api/users/:id/toggle', auth, need('usuarios'), h(async (req, res) => {
   const id = +req.params.id;
   if (id === req.user.id) bad('Você não pode desativar o seu próprio usuário.');
   await pool.query('update users set ativo = not ativo where id=$1', [id]);

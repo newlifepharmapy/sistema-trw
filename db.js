@@ -28,6 +28,7 @@ create table if not exists users (
   criado_em timestamptz not null default now()
 );
 create unique index if not exists users_login_uq on users (lower(login));
+alter table users add column if not exists permissoes jsonb;
 
 create table if not exists settings (
   id int primary key default 1 check (id = 1),

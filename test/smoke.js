@@ -45,6 +45,24 @@ function client() {
   const csv = await adm('/api/export/vendas.csv');
   assert(csv.status === 200 && String(csv.data).includes('Maria Vendedora'), 'CSV exporta vendas');
   assert((await adm('/api/products', 'POST', 'x')).status !== 200, 'rejeita corpo inválido');
+  // permissions chosen per user
+  const ana = client();
+  assert(sd.me.permissoes.join() === 'vendas_SP', 'vendedor antigo recebe as permissões padrão da loja');
+  const cu = await adm('/api/users', 'POST', { nome: 'Ana Caixa', login: 'ana', senha: '1234', papel: 'vendedor', permissoes: ['vendas_PY', 'cambio', 'cancelar', 'inventada'] });
+  assert(cu.status === 200, 'usuário criado com permissões escolhidas e senha de 4 caracteres');
+  assert((await ana('/api/login', 'POST', { login: 'ana', senha: '1234' })).status === 200, 'usuária entra');
+  let ad = (await ana('/api/data')).data;
+  assert(ad.me.permissoes.join() === 'vendas_PY,cancelar,cambio' && ad.me.loja === 'PY', 'permissões desconhecidas são ignoradas');
+  assert((await ana('/api/cotacao', 'POST', { valor: 5.6 })).status === 200, 'com permissão de câmbio ela atualiza a cotação');
+  assert((await ana('/api/products', 'POST', { nome: 'X' })).status === 403, 'sem permissão de produtos ela não cadastra');
+  assert((await ana('/api/users', 'POST', { nome: 'Y', login: 'yyy', senha: '1234' })).status === 403, 'sem permissão de usuários ela não cria usuários');
+  const anaId = (await adm('/api/data')).data.users.find(u => u.login === 'ana').id;
+  assert((await adm(`/api/users/${anaId}`, 'PUT', { nome: 'Ana Caixa', login: 'ana', papel: 'vendedor', permissoes: ['vendas_PY', 'vendas_SP'] })).status === 200, 'supervisor muda as permissões');
+  assert((await ana('/api/cotacao', 'POST', { valor: 5.7 })).status === 403, 'permissão retirada vale na hora');
+  ad = (await ana('/api/data')).data;
+  assert(ad.me.loja === 'ambas' && ad.sales.some(x => x.loja === 'SP'), 'com as duas lojas ela vê as vendas de São Paulo');
+  const admId = (await adm('/api/me')).data.user.id;
+  assert((await adm(`/api/users/${admId}`, 'PUT', { nome: 'Administrador', login: 'admin', papel: 'supervisor', permissoes: ['dash'] })).status === 400, 'supervisor não tira de si a gestão de usuários');
   const form = await fetch(BASE + '/api/cotacao', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'valor=1' });
   assert(form.status === 415, 'bloqueia envio de formulário de outro site');
   console.log('\nTodos os testes passaram.');

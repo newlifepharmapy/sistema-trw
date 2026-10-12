@@ -52,7 +52,7 @@
   <aside class="side" id="side">
     <div class="side-brand"><span class="mark">TRW</span><div><b>Gestão Comercial</b><small>Paraguay · Brasil</small></div></div>
     <nav class="nav" id="nav">
-      <div class="nav-g" data-sup><span>Visão geral</span>
+      <div class="nav-g"><span>Visão geral</span>
         <button data-tab="dash"><i class="ic">▦</i>Dashboard</button>
       </div>
       <div class="nav-g"><span>Vendas</span>
@@ -63,12 +63,12 @@
       <div class="nav-g"><span>Estoque</span>
         <button data-tab="stock"><i class="ic">▤</i>Estoque total</button>
         <button data-tab="prod"><i class="ic">◫</i>Produtos</button>
-        <button data-tab="buy" data-sup><i class="ic">↓</i>Compras e entradas</button>
-        <button data-tab="imp" data-sup><i class="ic">⚓</i>Importações</button>
+        <button data-tab="buy"><i class="ic">↓</i>Compras e entradas</button>
+        <button data-tab="imp"><i class="ic">⚓</i>Importações</button>
       </div>
-      <div class="nav-g" data-sup><span>Administração</span>
+      <div class="nav-g"><span>Administração</span>
         <button data-tab="fx"><i class="ic">$</i>Câmbio</button>
-        <button data-tab="users"><i class="ic">☺</i>Vendedores</button>
+        <button data-tab="users"><i class="ic">☺</i>Usuários</button>
       </div>
     </nav>
     <div class="side-foot">
@@ -83,13 +83,13 @@
       <h1 id="pageTitle">Dashboard</h1>
       <div class="rate" title="Cotação do dólar usada em todas as conversões">
         <span class="lbl">US$ 1 =</span><span class="v" id="rateV">—</span><span class="when" id="rateWhen"></span>
-        <button class="btn small" id="rateBtn" data-sup>Atualizar</button>
+        <button class="btn small" id="rateBtn" data-perm="cambio">Atualizar</button>
       </div>
       <span class="live" id="live" title="Sincronização com o servidor"><i></i><span>Online</span></span>
     </header>
 
     <main id="main">
-      <div class="banner" id="noRate" hidden>Defina a cotação do dólar para liberar as vendas e as conversões. <button class="btn small" data-goto="fx" data-sup>Definir agora</button></div>
+      <div class="banner" id="noRate" hidden>Defina a cotação do dólar para liberar as vendas e as conversões. <button class="btn small" data-goto="fx" data-perm="cambio">Definir agora</button></div>
 
       <!-- DASHBOARD -->
       <section class="pane" id="pane-dash" hidden>
@@ -122,7 +122,7 @@
           <select id="hLoja"><option value="">Todas as lojas</option><option value="PY">Paraguay</option><option value="SP">São Paulo</option></select>
           <label class="inl"><span class="lbl">De</span><input type="date" id="hFrom"></label>
           <label class="inl"><span class="lbl">Até</span><input type="date" id="hTo"></label>
-          <a class="btn" id="csvBtn" data-sup href="#">Exportar CSV</a>
+          <a class="btn" id="csvBtn" data-perm="exportar" href="#">Exportar CSV</a>
         </div>
         <div class="kpis" id="hKpis"></div>
         <div class="card"><div class="tablewrap" id="hTable"></div></div>
@@ -137,7 +137,7 @@
 
       <!-- PRODUCTS -->
       <section class="pane" id="pane-prod" hidden>
-        <div class="card" data-sup id="pFormCard">
+        <div class="card" data-perm="produtos" id="pFormCard">
           <h2 id="pFormTitle">Novo produto</h2>
           <div class="fields">
             <label class="field"><span class="lbl">Código</span><input type="text" id="pCode"></label>
@@ -240,20 +240,23 @@
       <!-- USERS -->
       <section class="pane" id="pane-users" hidden>
         <div class="card">
-          <h2 id="uFormTitle">Novo vendedor</h2>
+          <h2 id="uFormTitle">Novo usuário</h2>
           <div class="fields">
             <label class="field"><span class="lbl">Nome completo</span><input type="text" id="uName"></label>
             <label class="field"><span class="lbl">Usuário de acesso</span><input type="text" id="uLogin" autocomplete="off" placeholder="ex.: maria.silva"></label>
             <label class="field"><span class="lbl" id="uPassLbl">Senha (mín. 4 caracteres)</span><input type="password" id="uPass" autocomplete="new-password"></label>
             <label class="field"><span class="lbl">Função</span><select id="uRole"><option value="vendedor">Vendedor</option><option value="supervisor">Supervisor</option></select></label>
-            <label class="field"><span class="lbl">Loja</span><select id="uLoja"><option value="PY">Paraguay</option><option value="SP">São Paulo</option><option value="ambas">Ambas</option></select></label>
             <label class="field"><span class="lbl">Telefone / WhatsApp</span><input type="text" id="uTel"></label>
             <label class="field"><span class="lbl">Documento (CI / CPF)</span><input type="text" id="uDoc"></label>
             <label class="field"><span class="lbl">Comissão (%)</span><input type="number" id="uCom" min="0" max="100" step="0.1" placeholder="0"></label>
           </div>
-          <div class="row actions"><button class="btn primary" id="uSave">Salvar vendedor</button><button class="btn" id="uCancel" hidden>Cancelar edição</button></div>
+          <div class="perm-box">
+            <div class="row between"><b>Permissões</b><span class="hint">Ao trocar a função, as permissões padrão são marcadas. Depois ajuste como quiser.</span></div>
+            <div class="perm-grid" id="uPerms"></div>
+          </div>
+          <div class="row actions"><button class="btn primary" id="uSave">Salvar usuário</button><button class="btn" id="uCancel" hidden>Cancelar edição</button></div>
         </div>
-        <div class="card"><div class="row between"><h2>Vendedores cadastrados</h2><span class="hint">Vendas e comissão do mês atual</span></div><div class="tablewrap" id="userList"></div></div>
+        <div class="card"><div class="row between"><h2>Usuários cadastrados</h2><span class="hint">Vendas e comissão do mês atual</span></div><div class="tablewrap" id="userList"></div></div>
       </section>
     </main>
   </div>

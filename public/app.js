@@ -5,7 +5,7 @@ const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const LOJAS = { PY: { nome: 'Paraguay', cur: 'USD' }, SP: { nome: 'São Paulo', cur: 'BRL' } };
 const PAYS = ['Dinheiro', 'Cartão', 'PIX / Transf.', 'Outro'];
-const TITLES = { dash: 'Dashboard', PY: 'Vendas Paraguay', SP: 'Vendas São Paulo', hist: 'Histórico de vendas', stock: 'Estoque total', prod: 'Produtos', buy: 'Compras e entradas', imp: 'Importações', fx: 'Câmbio', users: 'Vendedores' };
+const TITLES = { dash: 'Dashboard', PY: 'Vendas Paraguay', SP: 'Vendas São Paulo', hist: 'Histórico de vendas', stock: 'Estoque total', prod: 'Produtos', buy: 'Compras e entradas', imp: 'Importações', fx: 'Câmbio', users: 'Usuários' };
 const ls = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
 
 const S = { v: null, rate: null, settings: null, historico: [], users: [], products: [], sales: [], purchases: [], imports: [], me: null, tab: null,
@@ -39,8 +39,22 @@ const dayAdd = (d, n) => { const x = new Date(d + 'T12:00:00'); x.setDate(x.getD
 const fDate = d => d ? String(d).split('-').reverse().join('/') : '';
 const fTime = ts => ts ? new Date(+ts).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '';
 const saleUsd = s => toUsd(s.total, s.moeda);
-const isSup = () => S.me && S.me.papel === 'supervisor';
-const canStore = l => S.me && (isSup() || S.me.loja === 'ambas' || S.me.loja === l);
+const PERMS = [
+  ['dash', 'Dashboard', 'Ver o painel e as vendas de todas as lojas'],
+  ['vendas_PY', 'Vender no Paraguay', 'Aba Vendas Paraguay'],
+  ['vendas_SP', 'Vender em São Paulo', 'Aba Vendas São Paulo'],
+  ['cancelar', 'Cancelar vendas', 'Devolve os produtos ao estoque'],
+  ['exportar', 'Exportar vendas', 'Baixar o histórico em CSV'],
+  ['produtos', 'Cadastrar produtos', 'Criar, editar e excluir produtos'],
+  ['compras', 'Compras e entradas', 'Dar entrada de mercadoria no estoque'],
+  ['importacoes', 'Importações', 'Criar, acompanhar e receber importações'],
+  ['cambio', 'Cotação do dólar', 'Atualizar a cotação do dia'],
+  ['usuarios', 'Usuários e permissões', 'Cadastrar usuários e mudar permissões'],
+];
+const PRESET = { supervisor: PERMS.map(p => p[0]), vendedor: ['vendas_PY'] };
+const can = p => !!(S.me && (S.me.permissoes || []).includes(p));
+const canStore = l => can('vendas_' + l);
+const TAB_PERM = { dash: 'dash', PY: 'vendas_PY', SP: 'vendas_SP', buy: 'compras', imp: 'importacoes', fx: 'cambio', users: 'usuarios' };
 const stockOf = (p, l) => +(p.estoque?.[l] ?? 0);
 const daysTo = d => d ? Math.round((new Date(d + 'T12:00:00') - new Date(today() + 'T12:00:00')) / 864e5) : null;
 function valPill(d) {
@@ -84,12 +98,10 @@ async function enter(user) {
   S.me = user;
   $('#login').hidden = true; $('#app').hidden = false;
   $('#meName').textContent = user.nome; $('#meAv').textContent = user.nome.split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase();
-  $('#meRole').textContent = isSup() ? 'Supervisor' : 'Vendedor · ' + (user.loja === 'ambas' ? 'ambas as lojas' : LOJAS[user.loja].nome);
-  $$('[data-sup]').forEach(el => el.hidden = !isSup());
-  $$('#nav button').forEach(b => { b.hidden = !allowedTab(b.dataset.tab); });
+  applyPerms();
   await loadData();
-  const want = isSup() ? (ls.get('trw_tab') || 'dash') : (canStore('PY') ? 'PY' : 'SP');
-  show(allowedTab(want) ? want : (canStore('PY') ? 'PY' : 'SP'));
+  const want = ls.get('trw_tab') || 'dash';
+  show(allowedTab(want) ? want : ['dash', 'PY', 'SP', 'stock'].find(allowedTab));
   clearInterval(S.poll);
   S.poll = setInterval(checkVersion, 5000);
 }
@@ -104,18 +116,27 @@ async function loadData() {
   const d = await api('/data');
   Object.assign(S, { v: d.v, settings: d.settings, historico: d.historico, products: d.products, sales: d.sales, purchases: d.purchases, imports: d.imports, users: d.users });
   S.rate = d.settings && +d.settings.cotacao || null;
+  // permissions changed by a supervisor take effect on the next refresh, without logging out
+  if (d.me && JSON.stringify(d.me) !== JSON.stringify(S.me)) { S.me = d.me; applyPerms(); if (S.tab && !allowedTab(S.tab)) { show(['dash', 'PY', 'SP', 'stock'].find(allowedTab)); return setLive(true); } }
   setLive(true); refresh();
 }
 
 /* ---------- navigation ---------- */
-function allowedTab(t) { if (t === 'PY' || t === 'SP') return canStore(t); const b = $(`#nav [data-tab="${t}"]`); if (!b) return false; return isSup() || (!b.closest('[data-sup]') && !b.hasAttribute('data-sup')); }
+function allowedTab(t) { return !!TITLES[t] && (!TAB_PERM[t] || can(TAB_PERM[t])); }
+function applyPerms() {
+  const u = S.me, lojas = ['PY', 'SP'].filter(canStore);
+  $('#meRole').textContent = (u.papel === 'supervisor' ? 'Supervisor' : 'Vendedor') + (lojas.length ? ' · ' + (lojas.length === 2 ? 'ambas as lojas' : LOJAS[lojas[0]].nome) : '');
+  $$('[data-perm]').forEach(el => el.hidden = !can(el.dataset.perm));
+  $$('#nav button').forEach(b => { b.hidden = !allowedTab(b.dataset.tab); });
+  $$('#nav .nav-g').forEach(g => { g.hidden = !g.querySelector('button:not([hidden])'); });
+}
 $('#nav').onclick = e => { const b = e.target.closest('button'); if (b) { show(b.dataset.tab); $('#app').classList.remove('nav-open'); } };
 $('#menuBtn').onclick = () => $('#app').classList.toggle('nav-open');
 $('.main-col').addEventListener('click', e => { if ($('#app').classList.contains('nav-open') && !e.target.closest('#menuBtn')) $('#app').classList.remove('nav-open'); });
 document.addEventListener('click', e => { const g = e.target.closest('[data-goto]'); if (g) show(g.dataset.goto); });
 function show(t) {
   if (!allowedTab(t)) return;
-  S.tab = t; if (isSup()) ls.set('trw_tab', t);
+  S.tab = t; ls.set('trw_tab', t);
   $$('#nav button').forEach(b => b.dataset.tab === t ? b.setAttribute('aria-current', 'page') : b.removeAttribute('aria-current'));
   $$('.pane').forEach(p => p.hidden = p.id !== 'pane-' + t);
   $('#pageTitle').textContent = TITLES[t];
@@ -233,12 +254,12 @@ async function finishSale(l) {
 function saleRow(s, opts = {}) {
   const itens = (s.itens || []).map(i => `${i.qtd}× ${esc(i.nome)}`).join(', ');
   const o = s.moeda === 'USD' ? 'BRL' : 'USD';
-  const actn = isSup() && !s.cancelada ? `<button class="btn small danger" data-cancel="${s.id}">Cancelar</button>` : (s.cancelada ? '<span class="pill bad">cancelada</span>' : '');
+  const actn = can('cancelar') && !s.cancelada ? `<button class="btn small danger" data-cancel="${s.id}">Cancelar</button>` : (s.cancelada ? '<span class="pill bad">cancelada</span>' : '');
   return `<tr class="${s.cancelada ? 'cancel' : ''}">${opts.date ? `<td class="num">${fDate(s.data)}</td>` : ''}<td class="num">${fTime(s.ts)}</td>${opts.loja ? `<td><span class="pill ${s.loja.toLowerCase()}">${s.loja}</span></td>` : ''}<td style="max-width:340px">${itens}${s.cliente ? `<div class="hint">${esc(s.cliente)}</div>` : ''}</td><td>${esc(s.vendedorNome)}</td><td>${esc(s.pagamento)}</td><td class="r num"><b>${fm(s.total, s.moeda)}</b><div class="hint">${fm(conv(s.total, s.moeda, o), o)}</div></td><td class="r">${actn}</td></tr>`;
 }
 const saleHead = (opts = {}) => `<thead><tr>${opts.date ? '<th>Data</th>' : ''}<th>Hora</th>${opts.loja ? '<th>Loja</th>' : ''}<th>Itens</th><th>Vendedor</th><th>Pagamento</th><th class="r">Valor</th><th></th></tr></thead>`;
 document.addEventListener('click', async e => {
-  const b = e.target.closest('[data-cancel]'); if (!b || !isSup()) return;
+  const b = e.target.closest('[data-cancel]'); if (!b || !can('cancelar')) return;
   if (!armed(b, 'Confirmar', 'Cancelar')) return;
   b.disabled = true; await act(() => api(`/sales/${b.dataset.cancel}/cancel`, 'POST', {}), 'Venda cancelada e estoque devolvido.');
 });
@@ -470,10 +491,10 @@ document.addEventListener('click', async e => {
 });
 function renderProd() {
   const f = $('#pFilter').value.trim().toLowerCase(), L = S.products.filter(p => matchP(p, f));
-  $('#prodList').innerHTML = L.length ? `<table><thead><tr><th>Código</th><th>Produto</th><th>Lote</th><th>Validade</th><th class="r">Custo</th><th class="r">Preço US$</th><th class="r">Preço R$</th><th class="r">Margem</th><th class="r">PY</th><th class="r">BR</th>${isSup() ? '<th></th>' : ''}</tr></thead><tbody>${L.map(p => {
+  $('#prodList').innerHTML = L.length ? `<table><thead><tr><th>Código</th><th>Produto</th><th>Lote</th><th>Validade</th><th class="r">Custo</th><th class="r">Preço US$</th><th class="r">Preço R$</th><th class="r">Margem</th><th class="r">PY</th><th class="r">BR</th>${can('produtos') ? '<th></th>' : ''}</tr></thead><tbody>${L.map(p => {
     const m = +p.precoUsd ? Math.round((p.precoUsd - (+p.custo || 0)) / p.precoUsd * 100) : null;
-    return `<tr><td class="num">${esc(p.codigo || '')}</td><td>${esc(p.nome)}</td><td class="num">${esc(p.lote || '—')}</td><td style="white-space:nowrap">${valPill(p.validade)}</td><td class="r num">${fm(+p.custo || 0, 'USD')}</td><td class="r num">${fm(+p.precoUsd || 0, 'USD')}</td><td class="r num">${fm(priceFor(p, 'BRL'), 'BRL')}${+p.precoBrl ? ' <span class="pill">fixo</span>' : ''}</td><td class="r num">${m == null ? '—' : m + '%'}</td>${['PY', 'SP'].map(l => `<td class="r"><span class="pill num ${stockOf(p, l) <= 0 ? 'bad' : stockOf(p, l) <= 3 ? 'warn' : ''}">${stockOf(p, l)}</span></td>`).join('')}${isSup() ? `<td class="r" style="white-space:nowrap"><button class="btn small" data-editp="${p.id}">Editar</button> <button class="btn small danger" data-delp="${p.id}">Excluir</button></td>` : ''}</tr>`;
-  }).join('')}</tbody></table>` : `<div class="empty">${S.products.length ? 'Nenhum produto encontrado.' : (isSup() ? 'Nenhum produto cadastrado. Use o formulário acima para cadastrar o primeiro.' : 'Nenhum produto cadastrado ainda.')}</div>`;
+    return `<tr><td class="num">${esc(p.codigo || '')}</td><td>${esc(p.nome)}</td><td class="num">${esc(p.lote || '—')}</td><td style="white-space:nowrap">${valPill(p.validade)}</td><td class="r num">${fm(+p.custo || 0, 'USD')}</td><td class="r num">${fm(+p.precoUsd || 0, 'USD')}</td><td class="r num">${fm(priceFor(p, 'BRL'), 'BRL')}${+p.precoBrl ? ' <span class="pill">fixo</span>' : ''}</td><td class="r num">${m == null ? '—' : m + '%'}</td>${['PY', 'SP'].map(l => `<td class="r"><span class="pill num ${stockOf(p, l) <= 0 ? 'bad' : stockOf(p, l) <= 3 ? 'warn' : ''}">${stockOf(p, l)}</span></td>`).join('')}${can('produtos') ? `<td class="r" style="white-space:nowrap"><button class="btn small" data-editp="${p.id}">Editar</button> <button class="btn small danger" data-delp="${p.id}">Excluir</button></td>` : ''}</tr>`;
+  }).join('')}</tbody></table>` : `<div class="empty">${S.products.length ? 'Nenhum produto encontrado.' : (can('produtos') ? 'Nenhum produto cadastrado. Use o formulário acima para cadastrar o primeiro.' : 'Nenhum produto cadastrado ainda.')}</div>`;
 }
 
 /* ---------- FX ---------- */
@@ -500,25 +521,37 @@ function renderFx() {
 
 /* ---------- users ---------- */
 let editU = null;
+$('#uPerms').innerHTML = PERMS.map(([k, t, d]) => `<label><input type="checkbox" value="${k}"><span>${t}<small>${d}</small></span></label>`).join('');
+const setPerms = list => $$('#uPerms input').forEach(i => { i.checked = list.includes(i.value); });
+const getPerms = () => $$('#uPerms input').filter(i => i.checked).map(i => i.value);
+$('#uRole').onchange = () => setPerms(PRESET[$('#uRole').value]);
 function fillU(u) {
-  editU = u?.id || null; $('#uFormTitle').textContent = u ? 'Editar vendedor' : 'Novo vendedor'; $('#uCancel').hidden = !u;
+  editU = u?.id || null; $('#uFormTitle').textContent = u ? 'Editar usuário' : 'Novo usuário'; $('#uCancel').hidden = !u;
   $('#uName').value = u?.nome || ''; $('#uLogin').value = u?.login || ''; $('#uPass').value = ''; $('#uPassLbl').textContent = u ? 'Nova senha (deixe em branco para manter)' : 'Senha (mín. 4 caracteres)';
-  $('#uRole').value = u?.papel || 'vendedor'; $('#uLoja').value = u?.loja || 'PY'; $('#uTel').value = u?.telefone || ''; $('#uDoc').value = u?.documento || ''; $('#uCom').value = u?.comissao || '';
+  $('#uRole').value = u?.papel || 'vendedor'; $('#uTel').value = u?.telefone || ''; $('#uDoc').value = u?.documento || ''; $('#uCom').value = u?.comissao || '';
+  setPerms(u ? u.permissoes || [] : PRESET.vendedor);
 }
+fillU(null);
 $('#uCancel').onclick = () => fillU(null);
 $('#uSave').onclick = async () => {
-  const doc = { nome: $('#uName').value, login: $('#uLogin').value, senha: $('#uPass').value, papel: $('#uRole').value, loja: $('#uLoja').value, telefone: $('#uTel').value, documento: $('#uDoc').value, comissao: +$('#uCom').value || 0 };
-  if (await act(() => editU ? api('/users/' + editU, 'PUT', doc) : api('/users', 'POST', doc), 'Vendedor salvo.')) fillU(null);
+  const doc = { nome: $('#uName').value, login: $('#uLogin').value, senha: $('#uPass').value, papel: $('#uRole').value, permissoes: getPerms(), telefone: $('#uTel').value, documento: $('#uDoc').value, comissao: +$('#uCom').value || 0 };
+  if (await act(() => editU ? api('/users/' + editU, 'PUT', doc) : api('/users', 'POST', doc), 'Usuário salvo.')) fillU(null);
 };
 document.addEventListener('click', async e => {
   const ed = e.target.closest('[data-editu]'); if (ed) { fillU(S.users.find(o => o.id === +ed.dataset.editu)); window.scrollTo({ top: 0, behavior: 'smooth' }); return; }
   const tg = e.target.closest('[data-toggleu]'); if (tg) await act(() => api(`/users/${tg.dataset.toggleu}/toggle`, 'POST', {}));
 });
+function permTags(o) {
+  const ps = o.permissoes || [];
+  if (ps.length === PERMS.length) return '<span class="pill">acesso total</span>';
+  if (!ps.length) return '<span class="pill warn">nenhuma</span>';
+  return `<div class="perm-tags">${PERMS.filter(p => ps.includes(p[0])).map(p => `<span class="pill ${p[0] === 'vendas_PY' ? 'py' : p[0] === 'vendas_SP' ? 'sp' : ''}">${p[1]}</span>`).join('')}</div>`;
+}
 function renderUsers() {
   const m0 = today().slice(0, 8) + '01', ms = S.sales.filter(x => !x.cancelada && x.data >= m0);
-  $('#userList').innerHTML = `<table><thead><tr><th>Nome</th><th>Usuário</th><th>Função</th><th>Loja</th><th>Telefone</th><th>Documento</th><th class="r">Vendas no mês</th><th class="r">Comissão</th><th>Situação</th><th></th></tr></thead><tbody>${S.users.map(o => {
+  $('#userList').innerHTML = `<table><thead><tr><th>Nome</th><th>Usuário</th><th>Função</th><th>Permissões</th><th>Telefone</th><th class="r">Vendas no mês</th><th class="r">Comissão</th><th>Situação</th><th></th></tr></thead><tbody>${S.users.map(o => {
     const mine = ms.filter(x => x.vendedorId === o.id), v = mine.reduce((a, x) => a + (saleUsd(x) || 0), 0), c = v * (+o.comissao || 0) / 100;
-    return `<tr><td>${esc(o.nome)}${o.id === S.me.id ? ' <span class="pill">você</span>' : ''}</td><td class="num">${esc(o.login)}</td><td>${o.papel === 'supervisor' ? 'Supervisor' : 'Vendedor'}</td><td>${o.loja === 'ambas' ? 'Ambas' : `<span class="pill ${o.loja.toLowerCase()}">${LOJAS[o.loja].nome}</span>`}</td><td class="num">${esc(o.telefone || '—')}</td><td class="num">${esc(o.documento || '—')}</td>
+    return `<tr><td>${esc(o.nome)}${o.id === S.me.id ? ' <span class="pill">você</span>' : ''}${o.documento ? `<div class="hint num">${esc(o.documento)}</div>` : ''}</td><td class="num">${esc(o.login)}</td><td>${o.papel === 'supervisor' ? 'Supervisor' : 'Vendedor'}</td><td>${permTags(o)}</td><td class="num">${esc(o.telefone || '—')}</td>
     <td class="r num">${fm(v, 'USD')}<div class="hint">${mine.length} vendas</div></td><td class="r num">${+o.comissao ? `${fm(c, 'USD')}<div class="hint">${o.comissao}%${S.rate ? ' · ' + fm(c * S.rate, 'BRL') : ''}</div>` : '—'}</td>
     <td>${o.ativo === false ? '<span class="pill bad">inativo</span>' : '<span class="pill">ativo</span>'}</td><td class="r" style="white-space:nowrap"><button class="btn small" data-editu="${o.id}">Editar</button>${o.id !== S.me.id ? ` <button class="btn small" data-toggleu="${o.id}">${o.ativo === false ? 'Reativar' : 'Desativar'}</button>` : ''}</td></tr>`;
   }).join('')}</tbody></table>`;
