@@ -247,8 +247,6 @@
             <label class="field"><span class="lbl" id="uPassLbl">Senha (mín. 4 caracteres)</span><input type="password" id="uPass" autocomplete="new-password"></label>
             <label class="field"><span class="lbl">Função</span><select id="uRole"><option value="vendedor">Vendedor</option><option value="supervisor">Supervisor</option></select></label>
             <label class="field"><span class="lbl">Telefone / WhatsApp</span><input type="text" id="uTel"></label>
-            <label class="field"><span class="lbl">Documento (CI / CPF)</span><input type="text" id="uDoc"></label>
-            <label class="field"><span class="lbl">Comissão (%)</span><input type="number" id="uCom" min="0" max="100" step="0.1" placeholder="0"></label>
           </div>
           <div class="perm-box">
             <div class="row between"><b>Permissões</b><span class="hint">Ao trocar a função, as permissões padrão são marcadas. Depois ajuste como quiser.</span></div>
@@ -256,7 +254,7 @@
           </div>
           <div class="row actions"><button class="btn primary" id="uSave">Salvar usuário</button><button class="btn" id="uCancel" hidden>Cancelar edição</button></div>
         </div>
-        <div class="card"><div class="row between"><h2>Usuários cadastrados</h2><span class="hint">Vendas e comissão do mês atual</span></div><div class="tablewrap" id="userList"></div></div>
+        <div class="card"><div class="row between"><h2>Usuários cadastrados</h2><span class="hint">Vendas do mês atual</span></div><div class="tablewrap" id="userList"></div></div>
       </section>
     </main>
   </div>

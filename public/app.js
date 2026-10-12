@@ -528,13 +528,13 @@ $('#uRole').onchange = () => setPerms(PRESET[$('#uRole').value]);
 function fillU(u) {
   editU = u?.id || null; $('#uFormTitle').textContent = u ? 'Editar usuário' : 'Novo usuário'; $('#uCancel').hidden = !u;
   $('#uName').value = u?.nome || ''; $('#uLogin').value = u?.login || ''; $('#uPass').value = ''; $('#uPassLbl').textContent = u ? 'Nova senha (deixe em branco para manter)' : 'Senha (mín. 4 caracteres)';
-  $('#uRole').value = u?.papel || 'vendedor'; $('#uTel').value = u?.telefone || ''; $('#uDoc').value = u?.documento || ''; $('#uCom').value = u?.comissao || '';
+  $('#uRole').value = u?.papel || 'vendedor'; $('#uTel').value = u?.telefone || '';
   setPerms(u ? u.permissoes || [] : PRESET.vendedor);
 }
 fillU(null);
 $('#uCancel').onclick = () => fillU(null);
 $('#uSave').onclick = async () => {
-  const doc = { nome: $('#uName').value, login: $('#uLogin').value, senha: $('#uPass').value, papel: $('#uRole').value, permissoes: getPerms(), telefone: $('#uTel').value, documento: $('#uDoc').value, comissao: +$('#uCom').value || 0 };
+  const doc = { nome: $('#uName').value, login: $('#uLogin').value, senha: $('#uPass').value, papel: $('#uRole').value, permissoes: getPerms(), telefone: $('#uTel').value };
   if (await act(() => editU ? api('/users/' + editU, 'PUT', doc) : api('/users', 'POST', doc), 'Usuário salvo.')) fillU(null);
 };
 document.addEventListener('click', async e => {
@@ -549,10 +549,10 @@ function permTags(o) {
 }
 function renderUsers() {
   const m0 = today().slice(0, 8) + '01', ms = S.sales.filter(x => !x.cancelada && x.data >= m0);
-  $('#userList').innerHTML = `<table><thead><tr><th>Nome</th><th>Usuário</th><th>Função</th><th>Permissões</th><th>Telefone</th><th class="r">Vendas no mês</th><th class="r">Comissão</th><th>Situação</th><th></th></tr></thead><tbody>${S.users.map(o => {
-    const mine = ms.filter(x => x.vendedorId === o.id), v = mine.reduce((a, x) => a + (saleUsd(x) || 0), 0), c = v * (+o.comissao || 0) / 100;
-    return `<tr><td>${esc(o.nome)}${o.id === S.me.id ? ' <span class="pill">você</span>' : ''}${o.documento ? `<div class="hint num">${esc(o.documento)}</div>` : ''}</td><td class="num">${esc(o.login)}</td><td>${o.papel === 'supervisor' ? 'Supervisor' : 'Vendedor'}</td><td>${permTags(o)}</td><td class="num">${esc(o.telefone || '—')}</td>
-    <td class="r num">${fm(v, 'USD')}<div class="hint">${mine.length} vendas</div></td><td class="r num">${+o.comissao ? `${fm(c, 'USD')}<div class="hint">${o.comissao}%${S.rate ? ' · ' + fm(c * S.rate, 'BRL') : ''}</div>` : '—'}</td>
+  $('#userList').innerHTML = `<table><thead><tr><th>Nome</th><th>Usuário</th><th>Função</th><th>Permissões</th><th>Telefone</th><th class="r">Vendas no mês</th><th>Situação</th><th></th></tr></thead><tbody>${S.users.map(o => {
+    const mine = ms.filter(x => x.vendedorId === o.id), v = mine.reduce((a, x) => a + (saleUsd(x) || 0), 0);
+    return `<tr><td>${esc(o.nome)}${o.id === S.me.id ? ' <span class="pill">você</span>' : ''}</td><td class="num">${esc(o.login)}</td><td>${o.papel === 'supervisor' ? 'Supervisor' : 'Vendedor'}</td><td>${permTags(o)}</td><td class="num">${esc(o.telefone || '—')}</td>
+    <td class="r num">${fm(v, 'USD')}<div class="hint">${mine.length} vendas</div></td>
     <td>${o.ativo === false ? '<span class="pill bad">inativo</span>' : '<span class="pill">ativo</span>'}</td><td class="r" style="white-space:nowrap"><button class="btn small" data-editu="${o.id}">Editar</button>${o.id !== S.me.id ? ` <button class="btn small" data-toggleu="${o.id}">${o.ativo === false ? 'Reativar' : 'Desativar'}</button>` : ''}</td></tr>`;
   }).join('')}</tbody></table>`;
 }
