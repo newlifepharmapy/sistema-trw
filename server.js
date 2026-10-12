@@ -154,7 +154,7 @@ app.get('/api/me', auth, (req, res) => res.json({ user: pubUser(req.user) }));
 app.post('/api/me/senha', auth, h(async (req, res) => {
   const atual = String(req.body.atual || ''), nova = String(req.body.nova || '');
   if (!await bcrypt.compare(atual, req.user.senha_hash)) bad('A senha atual está incorreta.');
-  if (nova.length < 8) bad('A nova senha precisa ter pelo menos 8 caracteres.');
+  if (nova.length < 4) bad('A nova senha precisa ter pelo menos 4 caracteres.');
   await pool.query('update users set senha_hash=$1 where id=$2', [await bcrypt.hash(nova, 12), req.user.id]);
   res.json({ ok: true });
 }));
@@ -378,8 +378,8 @@ function userBody(b, isNew) {
   if (!nome) bad('Informe o nome.');
   if (!/^[a-z0-9._-]{3,40}$/.test(login)) bad('O usuário deve ter de 3 a 40 letras minúsculas, números, ponto, hífen ou sublinhado, sem espaços.');
   const senha = String(b.senha || '');
-  if (isNew && senha.length < 8) bad('A senha precisa ter pelo menos 8 caracteres.');
-  if (!isNew && senha && senha.length < 8) bad('A nova senha precisa ter pelo menos 8 caracteres.');
+  if (isNew && senha.length < 4) bad('A senha precisa ter pelo menos 4 caracteres.');
+  if (!isNew && senha && senha.length < 4) bad('A nova senha precisa ter pelo menos 4 caracteres.');
   return { nome, login, senha, papel: b.papel === 'supervisor' ? 'supervisor' : 'vendedor', loja: ['PY', 'SP', 'ambas'].includes(b.loja) ? b.loja : 'PY',
     telefone: str(b.telefone, 40), documento: str(b.documento, 40), comissao: Math.min(100, Math.max(0, num(b.comissao))) };
 }
@@ -422,7 +422,7 @@ async function seedAdmin() {
   if (rows[0].n > 0) return;
   const login = str(process.env.ADMIN_LOGIN || 'admin', 40).toLowerCase();
   const senha = process.env.ADMIN_PASSWORD;
-  if (!senha || senha.length < 8) { console.log('Nenhum usuário ainda: abra o sistema no navegador para criar o primeiro supervisor.'); return; }
+  if (!senha || senha.length < 4) { console.log('Nenhum usuário ainda: abra o sistema no navegador para criar o primeiro supervisor.'); return; }
   await pool.query(`insert into users (login,senha_hash,nome,papel,loja) values ($1,$2,$3,'supervisor','ambas')`,
     [login, await bcrypt.hash(senha, 12), str(process.env.ADMIN_NOME || 'Administrador', 80)]);
   console.log(`Primeiro supervisor criado a partir de ADMIN_LOGIN/ADMIN_PASSWORD: usuário "${login}".`);

@@ -40,8 +40,8 @@
     <div class="form-err" id="sExp" hidden>O prazo para criar o primeiro supervisor terminou. No Railway, abra o serviço, clique em <b>Restart</b> e volte a esta página.</div>
     <label class="field"><span class="lbl">Seu nome</span><input type="text" id="sNome" required></label>
     <label class="field"><span class="lbl">Usuário de acesso</span><input type="text" id="sLogin" autocomplete="username" placeholder="ex.: admin" required></label>
-    <label class="field"><span class="lbl">Senha (mín. 8 caracteres)</span><input type="password" id="sPass" autocomplete="new-password" required minlength="8"></label>
-    <label class="field"><span class="lbl">Repita a senha</span><input type="password" id="sPass2" autocomplete="new-password" required minlength="8"></label>
+    <label class="field"><span class="lbl">Senha (mín. 4 caracteres)</span><input type="password" id="sPass" autocomplete="new-password" required minlength="4"></label>
+    <label class="field"><span class="lbl">Repita a senha</span><input type="password" id="sPass2" autocomplete="new-password" required minlength="4"></label>
     <div class="form-err" id="sErr" hidden></div>
     <button class="btn primary go" type="submit" id="sGo">Criar e entrar</button>
   </form>
@@ -244,7 +244,7 @@
           <div class="fields">
             <label class="field"><span class="lbl">Nome completo</span><input type="text" id="uName"></label>
             <label class="field"><span class="lbl">Usuário de acesso</span><input type="text" id="uLogin" autocomplete="off" placeholder="ex.: maria.silva"></label>
-            <label class="field"><span class="lbl" id="uPassLbl">Senha (mín. 8 caracteres)</span><input type="password" id="uPass" autocomplete="new-password"></label>
+            <label class="field"><span class="lbl" id="uPassLbl">Senha (mín. 4 caracteres)</span><input type="password" id="uPass" autocomplete="new-password"></label>
             <label class="field"><span class="lbl">Função</span><select id="uRole"><option value="vendedor">Vendedor</option><option value="supervisor">Supervisor</option></select></label>
             <label class="field"><span class="lbl">Loja</span><select id="uLoja"><option value="PY">Paraguay</option><option value="SP">São Paulo</option><option value="ambas">Ambas</option></select></label>
             <label class="field"><span class="lbl">Telefone / WhatsApp</span><input type="text" id="uTel"></label>
@@ -264,7 +264,7 @@
   <form class="card modal-card" id="pwForm">
     <h2>Alterar minha senha</h2>
     <label class="field"><span class="lbl">Senha atual</span><input type="password" id="pwOld" autocomplete="current-password" required></label>
-    <label class="field"><span class="lbl">Nova senha (mín. 8 caracteres)</span><input type="password" id="pwNew" autocomplete="new-password" required minlength="8"></label>
+    <label class="field"><span class="lbl">Nova senha (mín. 4 caracteres)</span><input type="password" id="pwNew" autocomplete="new-password" required minlength="4"></label>
     <div class="row actions"><button class="btn primary" type="submit">Salvar nova senha</button><button class="btn" type="button" id="pwCancel">Cancelar</button></div>
   </form>
 </div>

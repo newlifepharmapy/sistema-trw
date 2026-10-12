@@ -502,7 +502,7 @@ function renderFx() {
 let editU = null;
 function fillU(u) {
   editU = u?.id || null; $('#uFormTitle').textContent = u ? 'Editar vendedor' : 'Novo vendedor'; $('#uCancel').hidden = !u;
-  $('#uName').value = u?.nome || ''; $('#uLogin').value = u?.login || ''; $('#uPass').value = ''; $('#uPassLbl').textContent = u ? 'Nova senha (deixe em branco para manter)' : 'Senha (mín. 8 caracteres)';
+  $('#uName').value = u?.nome || ''; $('#uLogin').value = u?.login || ''; $('#uPass').value = ''; $('#uPassLbl').textContent = u ? 'Nova senha (deixe em branco para manter)' : 'Senha (mín. 4 caracteres)';
   $('#uRole').value = u?.papel || 'vendedor'; $('#uLoja').value = u?.loja || 'PY'; $('#uTel').value = u?.telefone || ''; $('#uDoc').value = u?.documento || ''; $('#uCom').value = u?.comissao || '';
 }
 $('#uCancel').onclick = () => fillU(null);
