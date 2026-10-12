@@ -4,13 +4,13 @@ const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const LOJAS = { PY: { nome: 'Paraguay', cur: 'USD' }, SP: { nome: 'São Paulo', cur: 'BRL' } };
-const PAYS = ['Dinheiro', 'Cartão', 'PIX / Transf.', 'Outro'];
+const PAYS = ['PIX / Transf.', 'USDT', 'EFETIVO'];
 const TITLES = { dash: 'Dashboard', PY: 'Vendas Paraguay', SP: 'Vendas São Paulo', hist: 'Histórico de vendas', stock: 'Estoque total', prod: 'Produtos', buy: 'Compras e entradas', imp: 'Importações', fx: 'Câmbio', users: 'Usuários' };
 const ls = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
 
 const S = { v: null, rate: null, settings: null, historico: [], users: [], products: [], sales: [], purchases: [], imports: [], me: null, tab: null,
   period: ls.get('trw_period') || '30', disp: ls.get('trw_disp') || 'USD',
-  carts: { PY: { items: [], cur: 'USD', pay: 'Dinheiro' }, SP: { items: [], cur: 'BRL', pay: 'PIX / Transf.' } }, buyItems: [], impItems: [] };
+  carts: { PY: { items: [], cur: 'USD', pay: 'EFETIVO' }, SP: { items: [], cur: 'BRL', pay: 'PIX / Transf.' } }, buyItems: [], impItems: [] };
 
 /* ---------- api ---------- */
 async function api(path, method = 'GET', body) {

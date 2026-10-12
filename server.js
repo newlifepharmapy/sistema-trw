@@ -247,12 +247,13 @@ app.delete('/api/products/:id', auth, need('produtos'), h(async (req, res) => {
 }));
 
 // ---------- vendas ----------
-const PAYS = ['Dinheiro', 'Cartão', 'PIX / Transf.', 'Outro'];
+const PAYS = ['PIX / Transf.', 'USDT', 'EFETIVO'];
 app.post('/api/sales', auth, h(async (req, res) => {
   const b = req.body, u = req.user;
   const loja = LOJAS.includes(b.loja) ? b.loja : bad('Loja inválida.');
   if (!canStore(u, loja)) throw new HttpError(403, 'Você não tem acesso a esta loja.');
   const moeda = MOEDAS.includes(b.moeda) ? b.moeda : bad('Moeda inválida.');
+  if (!PAYS.includes(b.pagamento)) bad('Escolha a forma de pagamento: PIX / Transf., USDT ou EFETIVO.');
   const itensIn = Array.isArray(b.itens) ? b.itens.filter(i => num(i.qtd) > 0).slice(0, 200) : [];
   if (!itensIn.length) bad('Adicione pelo menos um produto.');
   const out = await tx(async c => {
@@ -275,7 +276,7 @@ app.post('/api/sales', auth, h(async (req, res) => {
     const total = r2(itens.reduce((a, i) => a + i.qtd * i.preco, 0));
     const { rows } = await c.query(`insert into sales (loja,data,ts,moeda,total,cotacao,pagamento,cliente,itens,custo_usd,vendedor_id,vendedor_nome)
       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) returning *`,
-      [loja, todayStr(), Date.now(), moeda, total, rate, PAYS.includes(b.pagamento) ? b.pagamento : 'Outro', str(b.cliente, 120), JSON.stringify(itens), r2(custoUsd), u.id, u.nome]);
+      [loja, todayStr(), Date.now(), moeda, total, rate, b.pagamento, str(b.cliente, 120), JSON.stringify(itens), r2(custoUsd), u.id, u.nome]);
     return rows[0];
   });
   bump(); res.json({ sale: mapSale(out) });

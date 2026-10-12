@@ -15,14 +15,15 @@ function client() {
   assert((await adm('/api/data')).status === 401, 'dados exigem login');
   assert((await adm('/api/login', 'POST', { login: 'admin', senha: 'errada123' })).status === 401, 'senha errada recusada');
   assert((await adm('/api/login', 'POST', { login: 'admin', senha: process.env.ADMIN_PASSWORD })).status === 200, 'supervisor entra');
-  assert((await adm('/api/sales', 'POST', { loja: 'PY', moeda: 'USD', itens: [{ nome: 'x', qtd: 1, preco: 1 }] })).status === 400, 'venda bloqueada sem cotação');
+  assert((await adm('/api/sales', 'POST', { loja: 'PY', moeda: 'USD', pagamento: 'USDT', itens: [{ nome: 'x', qtd: 1, preco: 1 }] })).status === 400, 'venda bloqueada sem cotação');
   assert((await adm('/api/cotacao', 'POST', { valor: 5.5 })).status === 200, 'cotação salva');
   const p = await adm('/api/products', 'POST', { codigo: 'DIP500', nome: 'Dipirona 500mg', lote: 'L123', validade: '2027-03-01', custo: 2, precoUsd: 4, estoque: { PY: 10, SP: 5 } });
   assert(p.status === 200, 'produto criado');
   assert((await adm('/api/products', 'POST', { codigo: 'dip500', nome: 'Dup' })).status === 400, 'código duplicado recusado');
   assert((await adm('/api/users', 'POST', { nome: 'Maria Vendedora', login: 'maria', senha: 'senha-maria-1', papel: 'vendedor', loja: 'SP', comissao: 3 })).status === 200, 'vendedor criado');
   assert((await sel('/api/login', 'POST', { login: 'Maria', senha: 'senha-maria-1' })).status === 200, 'vendedor entra (login sem diferenciar maiúsculas)');
-  assert((await sel('/api/sales', 'POST', { loja: 'PY', moeda: 'USD', itens: [{ pid: p.data.id, qtd: 1, preco: 4 }] })).status === 403, 'vendedor SP não vende no PY');
+  assert((await sel('/api/sales', 'POST', { loja: 'PY', moeda: 'USD', pagamento: 'EFETIVO', itens: [{ pid: p.data.id, qtd: 1, preco: 4 }] })).status === 403, 'vendedor SP não vende no PY');
+  assert((await sel('/api/sales', 'POST', { loja: 'SP', moeda: 'BRL', pagamento: 'Cartão', itens: [{ nome: 'x', qtd: 1, preco: 1 }] })).status === 400, 'só aceita PIX / Transf., USDT ou EFETIVO');
   const s = await sel('/api/sales', 'POST', { loja: 'SP', moeda: 'BRL', pagamento: 'PIX / Transf.', itens: [{ pid: p.data.id, qtd: 2, preco: 22 }, { nome: 'Avulso', qtd: 1, preco: 10 }] });
   assert(s.status === 200 && s.data.sale.total === 54 && s.data.sale.itens[0].lote === 'L123', 'venda SP registrada com lote');
   assert((await sel('/api/purchases', 'POST', { loja: 'SP', moeda: 'USD', itens: [{ pid: p.data.id, qtd: 1, custo: 1 }] })).status === 403, 'vendedor não registra entrada');
