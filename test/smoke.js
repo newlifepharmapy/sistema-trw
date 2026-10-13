@@ -17,8 +17,13 @@ function client() {
   assert((await adm('/api/login', 'POST', { login: 'admin', senha: process.env.ADMIN_PASSWORD })).status === 200, 'supervisor entra');
   assert((await adm('/api/sales', 'POST', { loja: 'PY', moeda: 'USD', pagamento: 'USDT', itens: [{ nome: 'x', qtd: 1, preco: 1 }] })).status === 400, 'venda bloqueada sem cotação');
   assert((await adm('/api/cotacao', 'POST', { valor: 5.5 })).status === 200, 'cotação salva');
-  const p = await adm('/api/products', 'POST', { codigo: 'DIP500', nome: 'Dipirona 500mg', lote: 'L123', validade: '2027-03-01', custo: 2, precoUsd: 4, estoque: { PY: 10, SP: 5 } });
+  const p = await adm('/api/products', 'POST', { codigo: 'DIP500', nome: 'Dipirona 500mg', lote: 'IGNORADO', custo: 2, precoUsd: 4, estoque: { PY: 9, SP: 5 } });
   assert(p.status === 200, 'produto criado');
+  // lot and expiry come with each stock entry; expiry is month/year and kept as the month's last day
+  const le = await adm('/api/purchases', 'POST', { loja: 'PY', moeda: 'USD', itens: [{ pid: p.data.id, qtd: 1, custo: 2, lote: 'L123', validade: '2027-02-01' }] });
+  assert(le.status === 200 && le.data.purchase.itens[0].lote === 'L123' && le.data.purchase.itens[0].validade === '2027-02-28', 'entrada guarda lote e validade (fim do mês)');
+  const lp = (await adm('/api/data')).data.products.find(x => x.id === p.data.id);
+  assert(lp.lote === 'L123' && lp.validade === '2027-02-28' && lp.estoque.PY === 10, 'produto mostra o lote da última entrada; cadastro não grava lote');
   assert((await adm('/api/products', 'POST', { codigo: 'dip500', nome: 'Dup' })).status === 400, 'código duplicado recusado');
   assert((await adm('/api/users', 'POST', { nome: 'Maria Vendedora', login: 'maria', senha: 'senha-maria-1', papel: 'vendedor', loja: 'SP', comissao: 3 })).status === 200, 'vendedor criado');
   assert((await sel('/api/login', 'POST', { login: 'Maria', senha: 'senha-maria-1' })).status === 200, 'vendedor entra (login sem diferenciar maiúsculas)');

@@ -111,14 +111,15 @@ main{padding:22px 24px 60px;max-width:1440px;width:100%}
 .seg button{border:0;background:none;padding:6px 12px;font-weight:600;font-size:.84rem;color:var(--muted)}
 .seg button+button{border-left:1px solid var(--line)}
 .seg button[aria-pressed="true"]{background:var(--ink);color:var(--surface)}
-input[type=text],input[type=tel],input[type=number],input[type=password],input[type=date],input[type=search],select{background:var(--surface);border:1px solid var(--line-2);border-radius:7px;padding:8px 10px;min-width:0;width:100%}
+input[type=text],input[type=tel],input[type=number],input[type=password],input[type=date],input[type=month],input[type=search],select{background:var(--surface);border:1px solid var(--line-2);border-radius:7px;padding:8px 10px;min-width:0;width:100%}
 input:focus,select:focus{border-color:var(--accent);outline:none;box-shadow:0 0 0 3px var(--accent-soft)}
 .field{display:flex;flex-direction:column;gap:4px;min-width:0}
 .field.end{justify-content:flex-end}
 .fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}
 .fields .span2{grid-column:span 2}
 .fields.additem{grid-template-columns:2fr 1fr 1fr auto;align-items:end}
-@media (max-width:640px){.fields .span2{grid-column:auto}.fields.additem{grid-template-columns:1fr 1fr}}
+.fields.additem.lot{grid-template-columns:2fr .7fr 1fr 1fr 1fr auto}
+@media (max-width:640px){.fields .span2{grid-column:auto}.fields.additem,.fields.additem.lot{grid-template-columns:1fr 1fr}}
 .fields.frete{background:var(--sp-soft);border-radius:8px;padding:12px}
 .bigin{font-size:1.3rem}
 .big{font-size:1.3rem;font-weight:600}

@@ -175,8 +175,6 @@
             <label class="field span2"><span class="lbl">Nome</span><input type="text" id="pName"></label>
             <label class="field"><span class="lbl">Grupo</span><input type="text" id="pGrupo" list="dlGrupo" placeholder="ex.: Analgésicos"></label>
             <label class="field"><span class="lbl">Marca</span><input type="text" id="pMarca" list="dlMarca" placeholder="ex.: Medley"></label>
-            <label class="field"><span class="lbl">Lote</span><input type="text" id="pLote"></label>
-            <label class="field"><span class="lbl">Validade</span><input type="date" id="pVal"></label>
             <label class="field"><span class="lbl">Custo (US$)</span><input type="number" id="pCost" step="0.01" min="0"></label>
             <label class="field"><span class="lbl">Preço de venda (US$)</span><input type="number" id="pPriceUsd" step="0.01" min="0"></label>
             <label class="field"><span class="lbl">Preço fixo em R$ (opcional)</span><input type="number" id="pPriceBrl" step="0.01" min="0" placeholder="Automático pelo dólar"></label>
@@ -206,13 +204,15 @@
             <label class="field"><span class="lbl">Frete (%)</span><input type="number" id="bFrete" min="0" step="0.01" placeholder="Ex.: 8"></label>
             <div class="field hint end">A % do frete é somada ao custo de cada produto que entra no estoque de São Paulo.</div>
           </div>
-          <div class="fields additem">
+          <div class="fields additem lot">
             <label class="field"><span class="lbl">Produto</span><select id="bProd"></select></label>
             <label class="field"><span class="lbl">Quantidade</span><input type="number" id="bQty" min="1" value="1"></label>
             <label class="field"><span class="lbl">Custo unitário</span><input type="number" id="bCost" min="0" step="0.01"></label>
+            <label class="field"><span class="lbl">Lote</span><input type="text" id="bLote" maxlength="60"></label>
+            <label class="field"><span class="lbl">Validade</span><input type="month" id="bVal" placeholder="mm/aaaa"></label>
             <button class="btn" id="bAdd">Adicionar</button>
           </div>
-          <div class="tablewrap"><table><thead><tr><th>Produto</th><th class="r">Qtd</th><th class="r">Custo un.</th><th class="r" id="bCostFH" hidden>Custo c/ frete</th><th class="r">Subtotal</th><th></th></tr></thead><tbody id="bItems"></tbody></table></div>
+          <div class="tablewrap"><table><thead><tr><th>Produto</th><th>Lote</th><th>Validade</th><th class="r">Qtd</th><th class="r">Custo un.</th><th class="r" id="bCostFH" hidden>Custo c/ frete</th><th class="r">Subtotal</th><th></th></tr></thead><tbody id="bItems"></tbody></table></div>
           <div class="row between actions"><div><span class="lbl">Total da entrada</span><div class="num big" id="bTotal">—</div><div class="hint num" id="bTotalSub"></div></div><button class="btn primary" id="bSave">Registrar entrada</button></div>
         </div>
         <div class="card"><h2>Entradas registradas</h2><div class="tablewrap" id="buyList"></div></div>

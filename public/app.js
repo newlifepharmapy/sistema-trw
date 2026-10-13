@@ -62,10 +62,19 @@ const stockOf = (p, l) => +(p.estoque?.[l] ?? 0);
 // SP units carry the freight paid to bring them, so their cost can be higher than in PY
 const costOf = (p, l) => +(l === 'SP' && p.custoSp != null ? p.custoSp : p.custo) || 0;
 const daysTo = d => d ? Math.round((new Date(d + 'T12:00:00') - new Date(today() + 'T12:00:00')) / 864e5) : null;
+// expiry is month and year only (mm/aaaa); it is stored as the last day of that month
+const fVal = d => d ? d.slice(5, 7) + '/' + d.slice(0, 4) : '';
+function monthEnd(v) {
+  const t = String(v || '').trim();
+  let m = t.match(/^(\d{4})-(\d{1,2})/), y, mo;
+  if (m) { y = +m[1]; mo = +m[2]; } else if ((m = t.match(/^(\d{1,2})\/(\d{4})$/))) { y = +m[2]; mo = +m[1]; } else return '';
+  if (!(mo >= 1 && mo <= 12)) return '';
+  return `${y}-${String(mo).padStart(2, '0')}-${String(new Date(y, mo, 0).getDate()).padStart(2, '0')}`;
+}
 function valPill(d) {
   if (!d) return '<span class="hint">—</span>';
   const n = daysTo(d), cls = n < 0 ? 'bad' : n <= 90 ? 'warn' : '', t = n < 0 ? 'vencido' : n === 0 ? 'vence hoje' : n <= 90 ? `${n} dias` : '';
-  return `<span class="num">${fDate(d)}</span>${t ? ` <span class="pill ${cls}">${t}</span>` : ''}`;
+  return `<span class="num">${fVal(d)}</span>${t ? ` <span class="pill ${cls}">${t}</span>` : ''}`;
 }
 function priceFor(p, cur) { if (cur === 'BRL') { if (+p.precoBrl) return +p.precoBrl; return S.rate ? r2(+p.precoUsd * S.rate) : 0; } return +p.precoUsd || 0; }
 
@@ -237,7 +246,7 @@ function renderCart(l) {
   $$('#cur-' + l + ' button').forEach(b => b.setAttribute('aria-pressed', b.dataset.c === c.cur));
   $$('#pay-' + l + ' button').forEach(b => b.setAttribute('aria-pressed', b.dataset.p === c.pay));
   $('#ce-' + l).hidden = c.items.length > 0;
-  $('#cart-' + l).innerHTML = c.items.map((it, i) => `<tr><td>${it.codigo ? `<span class="num hint">${esc(it.codigo)}</span> ` : ''}${esc(it.nome)}${it.pid ? '' : ' <span class="pill">avulso</span>'}${it.lote || it.validade ? `<div class="hint">${it.lote ? 'Lote ' + esc(it.lote) : ''}${it.lote && it.validade ? ' · ' : ''}${it.validade ? 'Val. ' + fDate(it.validade) : ''}${it.validade && daysTo(it.validade) < 0 ? ' <span class="pill bad">vencido</span>' : ''}</div>` : ''}</td>
+  $('#cart-' + l).innerHTML = c.items.map((it, i) => `<tr><td>${it.codigo ? `<span class="num hint">${esc(it.codigo)}</span> ` : ''}${esc(it.nome)}${it.pid ? '' : ' <span class="pill">avulso</span>'}${it.lote || it.validade ? `<div class="hint">${it.lote ? 'Lote ' + esc(it.lote) : ''}${it.lote && it.validade ? ' · ' : ''}${it.validade ? 'Val. ' + fVal(it.validade) : ''}${it.validade && daysTo(it.validade) < 0 ? ' <span class="pill bad">vencido</span>' : ''}</div>` : ''}</td>
     <td class="r"><input class="q" type="number" min="0" step="1" value="${it.qtd}" data-i="${i}" data-f="q" aria-label="Quantidade"></td>
     <td class="r"><input type="number" min="0" step="0.01" value="${it.preco}" data-i="${i}" data-f="p" aria-label="Preço unitário"></td>
     <td class="r num sub">${fm(it.qtd * it.preco, c.cur)}</td><td><button class="x" data-i="${i}" aria-label="Remover">×</button></td></tr>`).join('');
@@ -390,7 +399,8 @@ $('#bProd').onchange = () => { const p = S.products.find(x => x.id === +$('#bPro
 $('#bAdd').onclick = () => {
   const p = S.products.find(x => x.id === +$('#bProd').value), q = +$('#bQty').value, c = +$('#bCost').value;
   if (!p) return toast('Escolha um produto. Cadastre-o antes em Produtos.', true); if (!(q > 0) || !(c >= 0)) return toast('Informe quantidade e custo.', true);
-  S.buyItems.push({ pid: p.id, nome: p.nome, qtd: q, custo: c }); $('#bQty').value = 1; $('#bCost').value = ''; renderBuyItems();
+  const val = $('#bVal').value.trim(); if (val && !monthEnd(val)) return toast('Validade inválida. Use mês e ano, ex.: 05/2027.', true);
+  S.buyItems.push({ pid: p.id, nome: p.nome, qtd: q, custo: c, lote: $('#bLote').value.trim(), validade: monthEnd(val) }); $('#bQty').value = 1; $('#bCost').value = ''; $('#bLote').value = ''; $('#bVal').value = ''; renderBuyItems();
 };
 $('#bCur').onchange = renderBuyItems; $('#bLoja').onchange = renderBuyItems; $('#bFrete').oninput = renderBuyItems;
 const freteOn = () => $('#bLoja').value === 'SP';
@@ -398,7 +408,7 @@ const fretePct = () => freteOn() ? Math.max(0, +$('#bFrete').value || 0) : 0;
 function renderBuyItems() {
   const cur = $('#bCur').value, fp = fretePct(), fon = freteOn();
   $('#bFreteBox').hidden = !fon; $('#bCostFH').hidden = !fon;
-  $('#bItems').innerHTML = S.buyItems.map((i, k) => `<tr><td>${esc(i.nome)}</td><td class="r num">${i.qtd}</td><td class="r num">${fm(i.custo, cur)}</td>${fon ? `<td class="r num"><b>${fm(i.custo * (1 + fp / 100), cur)}</b></td>` : ''}<td class="r num">${fm(i.qtd * i.custo * (1 + fp / 100), cur)}</td><td><button class="x" data-bi="${k}" aria-label="Remover">×</button></td></tr>`).join('') || '<tr><td colspan="6" class="empty">Adicione os produtos desta entrada.</td></tr>';
+  $('#bItems').innerHTML = S.buyItems.map((i, k) => `<tr><td>${esc(i.nome)}</td><td class="num">${esc(i.lote || '—')}</td><td class="num">${i.validade ? fVal(i.validade) : '—'}</td><td class="r num">${i.qtd}</td><td class="r num">${fm(i.custo, cur)}</td>${fon ? `<td class="r num"><b>${fm(i.custo * (1 + fp / 100), cur)}</b></td>` : ''}<td class="r num">${fm(i.qtd * i.custo * (1 + fp / 100), cur)}</td><td><button class="x" data-bi="${k}" aria-label="Remover">×</button></td></tr>`).join('') || '<tr><td colspan="8" class="empty">Adicione os produtos desta entrada.</td></tr>';
   const sub = S.buyItems.reduce((a, i) => a + i.qtd * i.custo, 0), fv = sub * fp / 100, t = sub + fv, o = cur === 'USD' ? 'BRL' : 'USD';
   $('#bTotal').textContent = S.buyItems.length ? `${fm(t, cur)}  ·  ${fm(conv(t, cur, o), o)}` : '—';
   $('#bTotalSub').textContent = S.buyItems.length && fon ? `Mercadoria ${fm(sub, cur)} + frete ${fp}% ${fm(fv, cur)}` : '';
@@ -541,7 +551,7 @@ function tabText(cur) {
   const groups = L.some(p => p.grupo); let lastG = null;
   L.forEach(p => {
     if (groups && gOf(p) !== lastG) { lastG = gOf(p); out.push((out[out.length - 1] === "" ? "" : "\n") + `*${(lastG === SEM_G ? "Outros" : lastG).toUpperCase()}*`); }
-    const extra = [$('#tVal').checked && p.validade ? 'val. ' + p.validade.slice(5, 7) + '/' + p.validade.slice(2, 4) : '', $('#tQty').checked ? qty(p) + ' un.' : ''].filter(Boolean).join(' · ');
+    const extra = [$('#tVal').checked && p.validade ? 'val. ' + fVal(p.validade) : '', $('#tQty').checked ? qty(p) + ' un.' : ''].filter(Boolean).join(' · ');
     out.push(`▪️ ${$('#tCode').checked && p.codigo ? p.codigo + ' · ' : ''}${p.nome}${extra ? ` (${extra})` : ''} — *${nMoney(priceFor(p, cur), cur)}*`);
   });
   out.push('', `_${L.length} produtos · valores sujeitos a alteração_`);
@@ -604,14 +614,14 @@ let editP = null;
 $('#pFilter').oninput = renderProd;
 function fillP(p) {
   editP = p?.id || null; $('#pFormTitle').textContent = p ? 'Editar produto' : 'Novo produto'; $('#pCancel').hidden = !p;
-  $('#pCode').value = p?.codigo || ''; $('#pName').value = p?.nome || ''; $('#pGrupo').value = p?.grupo || ''; $('#pMarca').value = p?.marca || ''; $('#pLote').value = p?.lote || ''; $('#pVal').value = p?.validade || '';
+  $('#pCode').value = p?.codigo || ''; $('#pName').value = p?.nome || ''; $('#pGrupo').value = p?.grupo || ''; $('#pMarca').value = p?.marca || '';
   $('#pCost').value = p?.custo ?? ''; $('#pPriceUsd').value = p?.precoUsd ?? ''; $('#pPriceBrl').value = p?.precoBrl || '';
   $('#pStPY').value = p ? stockOf(p, 'PY') : ''; $('#pStSP').value = p ? stockOf(p, 'SP') : '';
 }
 $('#pCancel').onclick = () => fillP(null);
 $('#pSave').onclick = async () => {
   if (!$('#pName').value.trim()) return toast('Informe o nome do produto.', true);
-  const doc = { codigo: $('#pCode').value, nome: $('#pName').value, grupo: $('#pGrupo').value, marca: $('#pMarca').value, lote: $('#pLote').value, validade: $('#pVal').value, custo: +$('#pCost').value || 0, precoUsd: +$('#pPriceUsd').value || 0, precoBrl: +$('#pPriceBrl').value || 0, estoque: { PY: +$('#pStPY').value || 0, SP: +$('#pStSP').value || 0 } };
+  const doc = { codigo: $('#pCode').value, nome: $('#pName').value, grupo: $('#pGrupo').value, marca: $('#pMarca').value, custo: +$('#pCost').value || 0, precoUsd: +$('#pPriceUsd').value || 0, precoBrl: +$('#pPriceBrl').value || 0, estoque: { PY: +$('#pStPY').value || 0, SP: +$('#pStSP').value || 0 } };
   if (await act(() => editP ? api('/products/' + editP, 'PUT', doc) : api('/products', 'POST', doc), 'Produto salvo.')) fillP(null);
 };
 document.addEventListener('click', async e => {
@@ -623,9 +633,9 @@ document.addEventListener('click', async e => {
 });
 function renderProd() {
   const f = $('#pFilter').value.trim().toLowerCase(), L = S.products.filter(p => matchP(p, f));
-  $('#prodList').innerHTML = L.length ? `<table><thead><tr><th>Código</th><th>Produto</th><th>Lote</th><th>Validade</th><th class="r">Custo</th><th class="r">Preço US$</th><th class="r">Preço R$</th><th class="r">Margem</th><th class="r">PY</th><th class="r">BR</th>${can('produtos') ? '<th></th>' : ''}</tr></thead><tbody>${L.map(p => {
+  $('#prodList').innerHTML = L.length ? `<table><thead><tr><th>Código</th><th>Produto</th><th class="r">Custo</th><th class="r">Preço US$</th><th class="r">Preço R$</th><th class="r">Margem</th><th class="r">PY</th><th class="r">BR</th>${can('produtos') ? '<th></th>' : ''}</tr></thead><tbody>${L.map(p => {
     const m = +p.precoUsd ? Math.round((p.precoUsd - (+p.custo || 0)) / p.precoUsd * 100) : null;
-    return `<tr><td class="num">${esc(p.codigo || '')}</td><td>${esc(p.nome)}${p.grupo || p.marca ? `<div class="hint">${esc([p.grupo, p.marca].filter(Boolean).join(' · '))}</div>` : ''}</td><td class="num">${esc(p.lote || '—')}</td><td style="white-space:nowrap">${valPill(p.validade)}</td><td class="r num">${fm(+p.custo || 0, 'USD')}</td><td class="r num">${fm(+p.precoUsd || 0, 'USD')}</td><td class="r num">${fm(priceFor(p, 'BRL'), 'BRL')}${+p.precoBrl ? ' <span class="pill">fixo</span>' : ''}</td><td class="r num">${m == null ? '—' : m + '%'}</td>${['PY', 'SP'].map(l => `<td class="r"><span class="pill num ${stockOf(p, l) <= 0 ? 'bad' : stockOf(p, l) <= 3 ? 'warn' : ''}">${stockOf(p, l)}</span></td>`).join('')}${can('produtos') ? `<td class="r" style="white-space:nowrap"><button class="btn small" data-editp="${p.id}">Editar</button> <button class="btn small danger" data-delp="${p.id}">Excluir</button></td>` : ''}</tr>`;
+    return `<tr><td class="num">${esc(p.codigo || '')}</td><td>${esc(p.nome)}${p.grupo || p.marca ? `<div class="hint">${esc([p.grupo, p.marca].filter(Boolean).join(' · '))}</div>` : ''}</td><td class="r num">${fm(+p.custo || 0, 'USD')}</td><td class="r num">${fm(+p.precoUsd || 0, 'USD')}</td><td class="r num">${fm(priceFor(p, 'BRL'), 'BRL')}${+p.precoBrl ? ' <span class="pill">fixo</span>' : ''}</td><td class="r num">${m == null ? '—' : m + '%'}</td>${['PY', 'SP'].map(l => `<td class="r"><span class="pill num ${stockOf(p, l) <= 0 ? 'bad' : stockOf(p, l) <= 3 ? 'warn' : ''}">${stockOf(p, l)}</span></td>`).join('')}${can('produtos') ? `<td class="r" style="white-space:nowrap"><button class="btn small" data-editp="${p.id}">Editar</button> <button class="btn small danger" data-delp="${p.id}">Excluir</button></td>` : ''}</tr>`;
   }).join('')}</tbody></table>` : `<div class="empty">${S.products.length ? 'Nenhum produto encontrado.' : (can('produtos') ? 'Nenhum produto cadastrado. Use o formulário acima para cadastrar o primeiro.' : 'Nenhum produto cadastrado ainda.')}</div>`;
 }
 
@@ -695,7 +705,7 @@ function notaText(s) {
   L.push(padL('Qtd', 6) + ' ' + padR('Descricao', 31) + ' ' + padR('Lote', 9) + ' ' + padR('Venc.', 7) + ' ' + padL('Unit.', 9) + ' ' + padL('Total', 10));
   L.push(sep);
   (s.itens || []).forEach(i => {
-    const venc = i.validade ? i.validade.slice(5, 7) + '/' + i.validade.slice(2, 4) : '';
+    const venc = fVal(i.validade);
     const desc = wrap(i.nome, 31);
     L.push(padL(nNum(i.qtd, i.qtd % 1 ? 2 : 0), 6) + ' ' + padR(desc[0] || '', 31) + ' ' + padR(i.lote || '', 9) + ' ' + padR(venc, 7) + ' ' + padL(nNum(i.preco), 9) + ' ' + padL(nNum(i.qtd * i.preco), 10));
     desc.slice(1).forEach(x => L.push(' '.repeat(7) + x));
@@ -760,7 +770,7 @@ async function notaImage(s) {
   return new Promise(r => cv.toBlob(b => r({ blob: b, url: cv.toDataURL('image/png') }), 'image/png'));
 }
 const purchaseDoc = p => ({ kind: 'compra', id: p.id, loja: p.loja, data: p.data, ts: p.ts, moeda: p.moeda, total: p.total, cotacao: p.cotacao, pagamento: '', cliente: p.fornecedor, vendedorNome: p.criadoPor,
-  subtotal: p.subtotal, frete: +p.fretePct || p.freteiro ? { pct: +p.fretePct || 0, valor: +p.freteValor || 0, freteiro: p.freteiro } : null, itens: (p.itens || []).map(i => ({ nome: i.nome, qtd: i.qtd, preco: i.custo })) });
+  subtotal: p.subtotal, frete: +p.fretePct || p.freteiro ? { pct: +p.fretePct || 0, valor: +p.freteValor || 0, freteiro: p.freteiro } : null, itens: (p.itens || []).map(i => ({ nome: i.nome, lote: i.lote || '', validade: i.validade || '', qtd: i.qtd, preco: i.custo })) });
 // after finishing a sale or a purchase the user chooses: print, WhatsApp, or nothing
 let doneDoc = null, doneAfter = null;
 function askDoc(doc, after) {

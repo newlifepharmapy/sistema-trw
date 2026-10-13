@@ -285,8 +285,7 @@ app.post('/api/cambio/config', auth, need('cambio'), h(async (req, res) => {
 // ---------- produtos ----------
 function productBody(b) {
   const nome = str(b.nome); if (!nome) bad('Informe o nome do produto.');
-  const validade = b.validade ? (isDate(b.validade) ? b.validade : bad('Validade inválida.')) : null;
-  return [str(b.codigo, 60), nome, str(b.lote, 60), validade, r2(num(b.custo)), r2(num(b.precoUsd)), r2(num(b.precoBrl)), num(b.estoque?.PY), num(b.estoque?.SP), str(b.grupo, 60), str(b.marca, 60)];
+  return [str(b.codigo, 60), nome, r2(num(b.custo)), r2(num(b.precoUsd)), r2(num(b.precoBrl)), num(b.estoque?.PY), num(b.estoque?.SP), str(b.grupo, 60), str(b.marca, 60)];
 }
 async function codeTaken(codigo, id) {
   if (!codigo) return false;
@@ -296,13 +295,13 @@ async function codeTaken(codigo, id) {
 app.post('/api/products', auth, need('produtos'), h(async (req, res) => {
   const v = productBody(req.body);
   if (await codeTaken(v[0])) bad('Já existe um produto com este código.');
-  const { rows } = await pool.query(`insert into products (codigo,nome,lote,validade,custo,preco_usd,preco_brl,estoque_py,estoque_sp,grupo,marca) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) returning id`, v);
+  const { rows } = await pool.query(`insert into products (codigo,nome,custo,preco_usd,preco_brl,estoque_py,estoque_sp,grupo,marca) values ($1,$2,$3,$4,$5,$6,$7,$8,$9) returning id`, v);
   bump(); res.json({ id: rows[0].id });
 }));
 app.put('/api/products/:id', auth, need('produtos'), h(async (req, res) => {
   const v = productBody(req.body), id = +req.params.id;
   if (await codeTaken(v[0], id)) bad('Já existe um produto com este código.');
-  await pool.query(`update products set codigo=$1,nome=$2,lote=$3,validade=$4,custo=$5,preco_usd=$6,preco_brl=$7,estoque_py=$8,estoque_sp=$9,grupo=$10,marca=$11 where id=$12`, [...v, id]);
+  await pool.query(`update products set codigo=$1,nome=$2,custo=$3,preco_usd=$4,preco_brl=$5,estoque_py=$6,estoque_sp=$7,grupo=$8,marca=$9 where id=$10`, [...v, id]);
   bump(); res.json({ ok: true });
 }));
 app.delete('/api/products/:id', auth, need('produtos'), h(async (req, res) => {
@@ -452,11 +451,12 @@ app.post('/api/purchases', auth, need('compras'), h(async (req, res) => {
     const col = loja === 'PY' ? 'estoque_py' : 'estoque_sp';
     const itens = [];
     for (const i of itensIn) {
-      const qtd = num(i.qtd), custo = r2(Math.max(0, num(i.custo)));
+      const qtd = num(i.qtd), custo = r2(Math.max(0, num(i.custo))), lote = str(i.lote, 60);
+      const validade = i.validade ? (isDate(i.validade) ? i.validade.slice(0, 8) + String(new Date(+i.validade.slice(0, 4), +i.validade.slice(5, 7), 0).getDate()).padStart(2, '0') : bad('Validade inválida. Use mês e ano.')) : null;
       const custoUsd = r2((moeda === 'USD' ? custo : custo / rate) * (1 + fretePct / 100));
-      const { rows } = await c.query(`update products set ${col} = ${col} + $1, custo = $2${loja === 'SP' ? ', custo_sp = $2' : ''} where id=$3 and ativo returning id, nome`, [qtd, custoUsd, +i.pid]);
+      const { rows } = await c.query(`update products set ${col} = ${col} + $1, custo = $2${loja === 'SP' ? ', custo_sp = $2' : ''}, lote = coalesce(nullif($4, ''), lote), validade = coalesce($5, validade) where id=$3 and ativo returning id, nome`, [qtd, custoUsd, +i.pid, lote, validade]);
       if (!rows[0]) bad('Produto não encontrado.');
-      itens.push({ pid: rows[0].id, nome: rows[0].nome, qtd, custo });
+      itens.push({ pid: rows[0].id, nome: rows[0].nome, qtd, custo, lote, validade: validade || '' });
     }
     const subtotal = r2(itens.reduce((a, i) => a + i.qtd * i.custo, 0)), freteValor = r2(subtotal * fretePct / 100);
     const r = await c.query(`insert into purchases (data,ts,fornecedor,loja,moeda,itens,subtotal,frete_pct,frete_valor,freteiro,total,cotacao,criado_por)
