@@ -43,6 +43,8 @@ alter table settings add column if not exists binance numeric;
 alter table settings add column if not exists binance_em bigint;
 alter table settings add column if not exists binance_erro text;
 alter table settings add column if not exists nota jsonb not null default '{}'::jsonb;
+alter table settings add column if not exists bot jsonb not null default '{}'::jsonb;
+create table if not exists bot_auth (k text primary key, v text not null);
 
 create table if not exists rate_history (
   dia date primary key,

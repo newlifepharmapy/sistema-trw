@@ -5,17 +5,21 @@
   "description": "Sistema TRW de compras, vendas, estoque e importações (Paraguay e São Paulo)",
   "main": "server.js",
   "type": "commonjs",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "start": "node server.js",
     "test": "node test/smoke.js"
   },
   "dependencies": {
+    "@whiskeysockets/baileys": "7.0.0-rc14",
     "bcryptjs": "3.0.3",
     "connect-pg-simple": "10.0.0",
     "express": "5.1.0",
     "express-session": "1.18.2",
     "helmet": "8.1.0",
-    "pg": "8.16.3"
+    "pg": "8.16.3",
+    "qrcode": "1.5.4"
   }
 }

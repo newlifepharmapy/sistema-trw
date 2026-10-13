@@ -108,6 +108,18 @@ function client() {
   assert((await ana(`/api/products/${np.data.id}/definitivo`, 'DELETE', {})).status === 200, 'produto apagado de vez');
   dd = (await adm('/api/data')).data;
   assert(!dd.imports.some(x => x.id === imp.id) && !dd.users.some(u => u.id === maria.id) && !dd.products.some(p => p.id === np.data.id), 'tudo sumiu do sistema');
+  // whatsapp bot
+  process.env.DATABASE_URL ||= 'postgres://localhost/nao-usado';
+  const bot = require('../bot');
+  assert(bot.command('Tabela SP') === 'SP' && bot.command('  tabela   py ') === 'PY' && bot.command('tabela São Paulo') === 'SP' && bot.command('quero a tabela sp') === null, 'bot entende tabela sp e tabela py');
+  assert((await ana('/api/bot')).status === 200 && (await ana('/api/bot')).data.status === 'desconectado', 'bot começa desconectado');
+  const pv = (await adm('/api/bot/previa/SP')).data, pp = (await adm('/api/bot/previa/PY')).data;
+  assert(/CÂMBIO DO DIA/.test(pv.cambio) && /SÃO PAULO · R\$/.test(pv.tabela) && /PARAGUAY · US\$/.test(pp.tabela), 'prévia do câmbio e das tabelas');
+  assert((await adm('/api/bot/config', 'POST', { ativo: true, grupo: '', intervalo: 30 })).status === 400, 'ligar o envio exige grupo');
+  assert((await adm('/api/bot/config', 'POST', { ativo: true, grupo: '120363000000000000@g.us', grupoNome: 'Clientes', intervalo: 30 })).status === 200, 'grupo e intervalo salvos');
+  assert((await adm('/api/bot')).data.config.grupoNome === 'Clientes', 'configuração do bot guardada');
+  assert((await adm('/api/bot/testar', 'POST', {})).status === 400, 'envio de teste avisa que o bot não está conectado');
+  await adm('/api/bot/config', 'POST', { ativo: false, grupo: '', intervalo: 30 });
   const form = await fetch(BASE + '/api/cotacao', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'valor=1' });
   assert(form.status === 415, 'bloqueia envio de formulário de outro site');
   console.log('\nTodos os testes passaram.');

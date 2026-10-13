@@ -5,7 +5,7 @@ const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const LOJAS = { PY: { nome: 'Paraguay', cur: 'USD' }, SP: { nome: 'São Paulo', cur: 'BRL' } };
 const PAYS = ['PIX / Transf.', 'USDT', 'EFETIVO'];
-const TITLES = { dash: 'Dashboard', PY: 'Vendas Paraguay', SP: 'Vendas São Paulo', hist: 'Histórico de vendas', tab: 'Tabela WhatsApp', stock: 'Estoque total', stPY: 'Estoque Paraguay', stSP: 'Estoque São Paulo', prod: 'Produtos', buy: 'Compras e entradas', imp: 'Importações', fx: 'Câmbio', users: 'Usuários', nota: 'Impressão da nota' };
+const TITLES = { dash: 'Dashboard', PY: 'Vendas Paraguay', SP: 'Vendas São Paulo', hist: 'Histórico de vendas', tab: 'Tabela WhatsApp', stock: 'Estoque total', stPY: 'Estoque Paraguay', stSP: 'Estoque São Paulo', prod: 'Produtos', buy: 'Compras e entradas', imp: 'Importações', fx: 'Câmbio', users: 'Usuários', nota: 'Impressão da nota', bot: 'Bot WhatsApp' };
 const ls = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
 
 const S = { v: null, rate: null, settings: null, historico: [], users: [], products: [], sales: [], purchases: [], imports: [], me: null, tab: null,
@@ -57,7 +57,7 @@ const PERMS = [
 const PRESET = { supervisor: PERMS.map(p => p[0]).filter(p => p !== 'excluir'), vendedor: ['vendas_PY'] };
 const can = p => !!(S.me && (S.me.permissoes || []).includes(p));
 const canStore = l => can('vendas_' + l);
-const TAB_PERM = { dash: 'dash', PY: 'vendas_PY', SP: 'vendas_SP', buy: 'compras', imp: 'importacoes', fx: 'cambio', users: 'usuarios', nota: 'usuarios' };
+const TAB_PERM = { dash: 'dash', PY: 'vendas_PY', SP: 'vendas_SP', buy: 'compras', imp: 'importacoes', fx: 'cambio', users: 'usuarios', nota: 'usuarios', bot: 'usuarios' };
 const stockOf = (p, l) => +(p.estoque?.[l] ?? 0);
 const daysTo = d => d ? Math.round((new Date(d + 'T12:00:00') - new Date(today() + 'T12:00:00')) / 864e5) : null;
 function valPill(d) {
@@ -153,7 +153,7 @@ function refresh() {
   $('#rateWhen').textContent = at ? (isToday ? 'hoje ' + fTime(at) : 'em ' + new Date(+at).toLocaleDateString('pt-BR')) : '';
   $('#rateWhen').className = 'when' + (at && !isToday ? ' pill warn' : '');
   $('#noRate').hidden = !!S.rate;
-  ({ dash: renderDash, PY: () => renderSaleData('PY'), SP: () => renderSaleData('SP'), hist: renderHist, tab: renderTab, buy: renderBuy, imp: renderImp, prod: renderProd, stock: renderStock, stPY: () => renderStore('PY'), stSP: () => renderStore('SP'), fx: renderFx, users: renderUsers, nota: renderNota })[S.tab]?.();
+  ({ dash: renderDash, PY: () => renderSaleData('PY'), SP: () => renderSaleData('SP'), hist: renderHist, tab: renderTab, buy: renderBuy, imp: renderImp, prod: renderProd, stock: renderStock, stPY: () => renderStore('PY'), stSP: () => renderStore('SP'), fx: renderFx, users: renderUsers, nota: renderNota, bot: renderBot })[S.tab]?.();
 }
 
 /* ---------- sale panes ---------- */
@@ -861,6 +861,47 @@ $('#setupForm').onsubmit = async e => {
   catch (err) { $('#sErr').textContent = err.message || 'Não foi possível criar.'; $('#sErr').hidden = false; }
   finally { $('#sGo').disabled = false; }
 };
+/* ---------- WhatsApp bot ---------- */
+// the server keeps the WhatsApp connection; this tab polls its state while it is open
+let botS = null, botTimer = null, botDirty = false;
+const BOT_ST = { conectado: ['Conectado', 'ok'], qr: ['Aguardando leitura do QR code', 'warn'], conectando: ['Conectando…', 'warn'], desconectado: ['Desconectado', 'bad'] };
+async function loadBot() {
+  if (S.tab !== 'bot') { clearInterval(botTimer); botTimer = null; return; }
+  try { botS = await api('/bot'); } catch (e) { return; }
+  paintBot();
+}
+function renderBot() {
+  if (!botTimer) { botTimer = setInterval(loadBot, 3000); loadBot(); loadBotPrev(); }
+}
+function paintBot() {
+  const b = botS, c = b.config, [lbl, cls] = BOT_ST[b.status] || [b.status, ''];
+  $('#botState').textContent = lbl; $('#botState').className = 'pill ' + cls;
+  $('#botInfo').textContent = b.status === 'conectado' ? `Conectado ao número +${b.numero}${b.nome ? ' (' + b.nome + ')' : ''}.`
+    : b.erro || 'Use de preferência um número só para o bot. Ele funciona como o WhatsApp Web: o celular precisa ficar com internet.';
+  $('#botQrBox').hidden = !(b.status === 'qr' && b.qr); if (b.qr) $('#botQr').src = b.qr;
+  $('#botConnect').hidden = b.status === 'conectado'; $('#botConnect').disabled = b.status === 'conectando' || b.status === 'qr';
+  $('#botLogout').hidden = b.status === 'desconectado';
+  $('#botLast').textContent = c.ultimoEnvio ? 'Último câmbio enviado: ' + new Date(c.ultimoEnvio).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '';
+  if (botDirty) return;
+  const gs = b.grupos.length ? b.grupos : c.grupo ? [{ id: c.grupo, nome: c.grupoNome || c.grupo }] : [];
+  $('#botGroup').innerHTML = `<option value="">${gs.length ? 'Escolha o grupo' : b.status === 'conectado' ? 'Nenhum grupo encontrado' : 'Conecte o WhatsApp para ver os grupos'}</option>` + gs.map(g => `<option value="${esc(g.id)}">${esc(g.nome)}</option>`).join('');
+  $('#botGroup').value = c.grupo || ''; $('#botEvery').value = c.intervalo || 30; $('#botOn').checked = !!c.ativo;
+}
+['botGroup', 'botEvery', 'botOn'].forEach(id => $('#' + id).addEventListener('input', () => { botDirty = true; }));
+async function loadBotPrev() {
+  try { const p = await api('/bot/previa/' + $('#botPrevLoja').value); $('#botPrevFx').value = p.cambio || 'Ainda não há câmbio cadastrado.'; $('#botPrevTab').value = p.tabela; } catch (e) {}
+}
+$('#botPrevLoja').onchange = loadBotPrev;
+$('#botConnect').onclick = async () => { if (await act(() => api('/bot/conectar', 'POST', {}))) loadBot(); };
+$('#botLogout').onclick = async () => { if (confirm('Desconectar o WhatsApp do bot? Para voltar será preciso ler o QR code de novo.') && await act(() => api('/bot/desconectar', 'POST', {}), 'WhatsApp desconectado.')) loadBot(); };
+$('#botGroups').onclick = async () => { if (await act(() => api('/bot/grupos', 'POST', {}), 'Lista de grupos atualizada.')) { botDirty = false; loadBot(); } };
+$('#botSave').onclick = async () => {
+  const sel = $('#botGroup');
+  const body = { grupo: sel.value, grupoNome: sel.value ? sel.selectedOptions[0].textContent : '', intervalo: +$('#botEvery').value || 30, ativo: $('#botOn').checked };
+  if (await act(() => api('/bot/config', 'POST', body), 'Configuração do bot salva.')) { botDirty = false; loadBot(); }
+};
+$('#botTest').onclick = () => act(() => api('/bot/testar', 'POST', {}), 'Câmbio enviado no grupo.');
+
 (async () => {
   try {
     const me = await fetch('/api/me', { credentials: 'same-origin' });

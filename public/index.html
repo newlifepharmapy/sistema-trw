@@ -73,6 +73,7 @@
         <button data-tab="fx"><i class="ic">$</i>Câmbio</button>
         <button data-tab="users"><i class="ic">☺</i>Usuários</button>
         <button data-tab="nota"><i class="ic">⎙</i>Impressão da nota</button>
+        <button data-tab="bot"><i class="ic">✆</i>Bot WhatsApp</button>
       </div>
     </nav>
     <div class="side-foot">
@@ -299,6 +300,41 @@
             <li>No Chrome ou Edge, o navegador lembra essas opções depois da primeira vez.</li>
             <li>Se a nota sair cortada à direita, em <b>Preferências da impressora</b> escolha o papel <b>Carta</b> ou <b>Fanfold 9 1/2 x 11 pol.</b></li>
           </ol>
+        </div>
+      </section>
+
+      <!-- WHATSAPP BOT -->
+      <section class="pane" id="pane-bot" hidden>
+        <div class="card">
+          <div class="row between"><h2>Conexão com o WhatsApp</h2><span class="pill" id="botState">—</span></div>
+          <p class="hint" id="botInfo"></p>
+          <div class="bot-qr" id="botQrBox" hidden>
+            <img id="botQr" alt="QR code para conectar o WhatsApp">
+            <ol class="steps">
+              <li>No celular do número que será o bot, abra o WhatsApp.</li>
+              <li>Toque em <b>⋮</b> (Android) ou <b>Configurações</b> (iPhone) e depois em <b>Dispositivos conectados</b>.</li>
+              <li>Toque em <b>Conectar um dispositivo</b> e aponte a câmera para este QR code.</li>
+            </ol>
+          </div>
+          <div class="row actions"><button class="btn primary" id="botConnect">Conectar</button><button class="btn" id="botLogout" hidden>Desconectar</button></div>
+        </div>
+        <div class="card">
+          <h2>Grupo e envio do câmbio</h2>
+          <p class="hint">O bot posta o câmbio do dia no grupo escolhido no intervalo abaixo. Em qualquer conversa, ou nesse grupo, quem escrever <b>tabela sp</b> recebe a tabela de São Paulo em reais e quem escrever <b>tabela py</b> recebe a do Paraguay em dólares. Só entram produtos com estoque na loja.</p>
+          <div class="fields">
+            <label class="field"><span class="lbl">Grupo</span><select id="botGroup"></select></label>
+            <label class="field"><span class="lbl">Enviar o câmbio a cada (minutos)</span><input type="number" id="botEvery" min="5" max="1440" step="5"></label>
+          </div>
+          <label class="check"><input type="checkbox" id="botOn"> Enviar o câmbio automaticamente no grupo</label>
+          <p class="hint" id="botLast"></p>
+          <div class="row actions"><button class="btn primary" id="botSave">Salvar</button><button class="btn" id="botGroups">Atualizar lista de grupos</button><button class="btn" id="botTest">Enviar câmbio agora</button></div>
+        </div>
+        <div class="card">
+          <h2>Prévia das mensagens</h2>
+          <div class="grid2">
+            <div><b>Câmbio</b><textarea class="wa-text bot-prev" id="botPrevFx" readonly></textarea></div>
+            <div><div class="row between"><b>Tabela</b><select id="botPrevLoja" class="gm-sel"><option value="SP">tabela sp</option><option value="PY">tabela py</option></select></div><textarea class="wa-text bot-prev" id="botPrevTab" readonly></textarea></div>
+          </div>
         </div>
       </section>
 

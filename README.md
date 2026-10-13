@@ -21,6 +21,15 @@ Opcional: `TZ_LOJA` define o fuso usado para a data das vendas (padrão `America
 
 Cotação: o sistema lê o preço do USDT em reais na Binance a cada 5 minutos e soma o spread definido na aba **Câmbio**. `COTACAO_AUTO=off` desliga essa leitura no servidor.
 
+## Bot do WhatsApp
+
+Na aba **Bot WhatsApp** (quem tem a permissão de usuários), clique em **Conectar** e leia o QR code no celular do número do bot, em *Dispositivos conectados*. O login fica guardado no banco, então um novo deploy não pede o QR de novo.
+
+- Posta o câmbio do dia no grupo escolhido a cada 30 minutos (ajustável).
+- Responde **tabela sp** (São Paulo, em reais) e **tabela py** (Paraguay, em dólares) no grupo escolhido e em conversas privadas. Só entram produtos com estoque na loja.
+- Usa o WhatsApp normal do número, como o WhatsApp Web, sem a API paga. Prefira um número só para o bot.
+- `WHATSAPP_BOT=off` desliga o bot.
+
 ## Rodar localmente
 
 ```bash

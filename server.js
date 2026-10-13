@@ -542,6 +542,32 @@ app.post('/api/users/:id/toggle', auth, need('usuarios'), h(async (req, res) => 
   bump(); res.json({ ok: true });
 }));
 
+// ---------- bot do WhatsApp ----------
+const bot = require('./bot');
+app.get('/api/bot', auth, need('usuarios'), h(async (req, res) => res.json(await bot.status())));
+app.post('/api/bot/conectar', auth, need('usuarios'), h(async (req, res) => { await bot.pair(); res.json({ ok: true }); }));
+app.post('/api/bot/desconectar', auth, need('usuarios'), h(async (req, res) => { await bot.logout(); res.json({ ok: true }); }));
+app.post('/api/bot/grupos', auth, need('usuarios'), h(async (req, res) => res.json({ grupos: await bot.loadGroups() })));
+app.post('/api/bot/config', auth, need('usuarios'), h(async (req, res) => {
+  const intervalo = Math.round(num(req.body.intervalo, 30));
+  if (intervalo < 5 || intervalo > 1440) bad('Intervalo entre 5 e 1440 minutos.');
+  const grupo = str(req.body.grupo, 120);
+  if (grupo && !/^[\d-]+@g\.us$/.test(grupo)) bad('Grupo inválido.');
+  if (req.body.ativo && !grupo) bad('Escolha o grupo antes de ligar o envio.');
+  res.json({ ok: true, config: await bot.saveConfig({ ativo: !!req.body.ativo, grupo, grupoNome: str(req.body.grupoNome, 120), intervalo }) });
+}));
+app.post('/api/bot/testar', auth, need('usuarios'), h(async (req, res) => {
+  const { config } = await bot.status();
+  if (!config.grupo) bad('Escolha o grupo primeiro.');
+  const text = await bot.rateMessage(); if (!text) bad('Ainda não há câmbio cadastrado.');
+  try { await bot.send(config.grupo, text); } catch (e) { bad(e.message); }
+  res.json({ ok: true });
+}));
+app.get('/api/bot/previa/:loja', auth, need('usuarios'), h(async (req, res) => {
+  const loja = req.params.loja === 'PY' ? 'PY' : 'SP';
+  res.json({ cambio: await bot.rateMessage(), tabela: await bot.tableMessage(loja) });
+}));
+
 // ---------- static + errors ----------
 app.get('/health', (req, res) => res.json({ ok: true }));
 // always revalidate the page files so every computer gets a new version right after a deploy
@@ -567,5 +593,6 @@ async function seedAdmin() {
 
 migrate().then(seedAdmin).then(sessionSecret).then(initSession).then(() => {
   app.listen(PORT, () => console.log(`Sistema TRW rodando na porta ${PORT}`));
+  bot.start(bump).catch(e => console.error('Bot WhatsApp não iniciou:', e.message));
   if (process.env.COTACAO_AUTO !== 'off') { autoRate(); setInterval(() => autoRate().catch(e => console.error(e)), 5 * 60 * 1000); }
 }).catch(e => { console.error('Falha ao iniciar:', e); process.exit(1); });
