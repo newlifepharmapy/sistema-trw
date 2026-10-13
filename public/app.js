@@ -5,7 +5,7 @@ const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const LOJAS = { PY: { nome: 'Paraguay', cur: 'USD' }, SP: { nome: 'São Paulo', cur: 'BRL' } };
 const PAYS = ['PIX / Transf.', 'USDT', 'EFETIVO'];
-const TITLES = { dash: 'Dashboard', PY: 'Vendas Paraguay', SP: 'Vendas São Paulo', hist: 'Histórico de vendas', stock: 'Estoque total', prod: 'Produtos', buy: 'Compras e entradas', imp: 'Importações', fx: 'Câmbio', users: 'Usuários', nota: 'Impressão da nota' };
+const TITLES = { dash: 'Dashboard', PY: 'Vendas Paraguay', SP: 'Vendas São Paulo', hist: 'Histórico de vendas', stock: 'Estoque total', stPY: 'Estoque Paraguay', stSP: 'Estoque São Paulo', prod: 'Produtos', buy: 'Compras e entradas', imp: 'Importações', fx: 'Câmbio', users: 'Usuários', nota: 'Impressão da nota' };
 const ls = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
 
 const S = { v: null, rate: null, settings: null, historico: [], users: [], products: [], sales: [], purchases: [], imports: [], me: null, tab: null,
@@ -152,7 +152,7 @@ function refresh() {
   $('#rateWhen').textContent = at ? (isToday ? 'hoje ' + fTime(at) : 'em ' + new Date(+at).toLocaleDateString('pt-BR')) : '';
   $('#rateWhen').className = 'when' + (at && !isToday ? ' pill warn' : '');
   $('#noRate').hidden = !!S.rate;
-  ({ dash: renderDash, PY: () => renderSaleData('PY'), SP: () => renderSaleData('SP'), hist: renderHist, buy: renderBuy, imp: renderImp, prod: renderProd, stock: renderStock, fx: renderFx, users: renderUsers, nota: renderNota })[S.tab]?.();
+  ({ dash: renderDash, PY: () => renderSaleData('PY'), SP: () => renderSaleData('SP'), hist: renderHist, buy: renderBuy, imp: renderImp, prod: renderProd, stock: renderStock, stPY: () => renderStore('PY'), stSP: () => renderStore('SP'), fx: renderFx, users: renderUsers, nota: renderNota })[S.tab]?.();
 }
 
 /* ---------- sale panes ---------- */
@@ -495,6 +495,46 @@ function renderStock() {
     : `<div class="empty">${S.products.length ? 'Nenhum produto encontrado.' : 'Nenhum produto cadastrado ainda.'}</div>`;
 }
 
+/* ---------- stock per store ---------- */
+// cost and price are in dollars and converted at the current rate, so these values follow the dollar
+function buildStorePane(l) {
+  $('#pane-st' + l).innerHTML = `
+  <div class="toolbar"><input type="search" id="sf-${l}" placeholder="Filtrar por nome, código ou lote">
+    <div class="seg" id="sv-${l}"><button data-v="com">Com estoque</button><button data-v="todos">Todos</button><button data-v="sem">Sem estoque</button></div></div>
+  <div class="kpis" id="sk-${l}"></div>
+  <div class="card"><div class="tablewrap" id="sl-${l}"></div></div>`;
+  $('#sf-' + l).oninput = () => renderStore(l);
+  $('#sv-' + l).onclick = e => { const b = e.target.closest('button'); if (b) { S['stView' + l] = b.dataset.v; renderStore(l); } };
+}
+function renderStore(l) {
+  const cur = LOJAS[l].cur, o = cur === 'USD' ? 'BRL' : 'USD', view = S['stView' + l] || 'com', nf0 = n => n.toLocaleString('pt-BR');
+  $$(`#sv-${l} button`).forEach(b => b.setAttribute('aria-pressed', b.dataset.v === view));
+  const qty = p => stockOf(p, l), price = p => priceFor(p, cur), costIn = (p, c) => conv(+p.custo || 0, 'USD', c) || 0;
+  const withStock = S.products.filter(p => qty(p) > 0);
+  const units = withStock.reduce((a, p) => a + qty(p), 0);
+  const costUsd = withStock.reduce((a, p) => a + qty(p) * (+p.custo || 0), 0);
+  const saleCur = withStock.reduce((a, p) => a + qty(p) * price(p), 0), saleUsd = conv(saleCur, cur, 'USD') || 0;
+  const expiring = withStock.filter(p => p.validade && daysTo(p.validade) <= 90).length, empty = S.products.filter(p => qty(p) <= 0).length;
+  const k = (cls, head, v, sub) => `<div class="kpi ${cls}"><span class="lbl">${head}</span><span class="v">${v}</span><span class="s">${sub}</span></div>`;
+  $('#sk-' + l).innerHTML =
+    k(l.toLowerCase(), (l === 'PY' ? FLAG_PY : FLAG_BR) + ' Unidades em estoque', nf0(units), `${withStock.length} produtos com estoque`)
+    + k('', 'Custo do estoque', fm(costUsd, 'USD'), fm(conv(costUsd, 'USD', 'BRL'), 'BRL'))
+    + k('', 'Valor de venda', fm(saleCur, cur), fm(conv(saleCur, cur, o), o))
+    + k('', 'Lucro potencial', fm(saleUsd - costUsd, 'USD'), saleUsd ? `margem ${Math.round((saleUsd - costUsd) / saleUsd * 100)}%` : 'margem —')
+    + k('', 'Atenção', `${expiring} vencendo`, `${empty} produtos sem estoque`);
+  const f = $('#sf-' + l).value.trim().toLowerCase();
+  const L = S.products.filter(p => matchP(p, f) && (view === 'todos' || (view === 'com' ? qty(p) > 0 : qty(p) <= 0))).sort((a, b) => qty(b) - qty(a) || a.nome.localeCompare(b.nome));
+  const tot = fn => L.reduce((a, p) => a + Math.max(0, qty(p)) * fn(p), 0);
+  $('#sl-' + l).innerHTML = L.length ? `<table><thead><tr><th>Código</th><th>Produto</th><th>Lote</th><th>Validade</th><th class="r">Qtd</th><th class="r">Custo un.</th><th class="r">Custo total</th><th class="r">Preço un.</th><th class="r">Valor de venda</th></tr></thead><tbody>${L.map(p => `<tr><td class="num">${esc(p.codigo || '')}</td><td>${esc(p.nome)}</td><td class="num">${esc(p.lote || '—')}</td><td style="white-space:nowrap">${valPill(p.validade)}</td>
+      <td class="r"><span class="pill num ${qty(p) <= 0 ? 'bad' : qty(p) <= 3 ? 'warn' : ''}">${nf0(qty(p))}</span></td>
+      <td class="r num">${fm(+p.custo || 0, 'USD')}<div class="hint">${fm(costIn(p, 'BRL'), 'BRL')}</div></td>
+      <td class="r num">${fm(Math.max(0, qty(p)) * (+p.custo || 0), 'USD')}</td>
+      <td class="r num">${fm(price(p), cur)}<div class="hint">${fm(conv(price(p), cur, o), o)}</div></td>
+      <td class="r num"><b>${fm(Math.max(0, qty(p)) * price(p), cur)}</b><div class="hint">${fm(conv(Math.max(0, qty(p)) * price(p), cur, o), o)}</div></td></tr>`).join('')}</tbody>
+      <tfoot><tr><td></td><td>Total</td><td></td><td></td><td class="r num">${nf0(L.reduce((a, p) => a + Math.max(0, qty(p)), 0))}</td><td></td><td class="r num">${fm(tot(p => +p.custo || 0), 'USD')}</td><td></td><td class="r num">${fm(tot(price), cur)}</td></tr></tfoot></table>`
+    : `<div class="empty">${S.products.length ? 'Nenhum produto neste filtro.' : 'Nenhum produto cadastrado ainda.'}</div>`;
+}
+
 /* ---------- products ---------- */
 let editP = null;
 $('#pFilter').oninput = renderProd;
@@ -783,7 +823,7 @@ function renderUsers() {
 }
 
 /* ---------- boot ---------- */
-buildSalePane('PY'); buildSalePane('SP');
+buildSalePane('PY'); buildSalePane('SP'); buildStorePane('PY'); buildStorePane('SP');
 $('#setupForm').onsubmit = async e => {
   e.preventDefault(); $('#sErr').hidden = true;
   if ($('#sPass').value !== $('#sPass2').value) { $('#sErr').textContent = 'As senhas não são iguais.'; $('#sErr').hidden = false; return; }

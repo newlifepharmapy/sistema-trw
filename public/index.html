@@ -62,6 +62,8 @@
       </div>
       <div class="nav-g"><span>Estoque</span>
         <button data-tab="stock"><i class="ic">▤</i>Estoque total</button>
+        <button data-tab="stPY"><i class="ic flag-py"></i>Estoque Paraguay</button>
+        <button data-tab="stSP"><i class="ic flag-br"></i>Estoque São Paulo</button>
         <button data-tab="prod"><i class="ic">◫</i>Produtos</button>
         <button data-tab="buy"><i class="ic">↓</i>Compras e entradas</button>
         <button data-tab="imp"><i class="ic">⚓</i>Importações</button>
@@ -135,6 +137,10 @@
         <div class="kpis" id="sKpis"></div>
         <div class="card"><div class="tablewrap" id="stockList"></div></div>
       </section>
+
+      <!-- STOCK PER STORE (built by app.js) -->
+      <section class="pane" id="pane-stPY" hidden></section>
+      <section class="pane" id="pane-stSP" hidden></section>
 
       <!-- PRODUCTS -->
       <section class="pane" id="pane-prod" hidden>
