@@ -33,12 +33,14 @@ const toUsd = (v, cur) => cur === 'USD' ? v : (S.rate ? v / S.rate : null);
 const toBrl = (v, cur) => cur === 'BRL' ? v : (S.rate ? v * S.rate : null);
 const conv = (v, from, to) => to === 'USD' ? toUsd(v, from) : toBrl(v, from);
 const fd = v => fm(conv(v, 'USD', S.disp), S.disp);
-const fdAlt = v => { const o = S.disp === 'USD' ? 'BRL' : 'USD'; return fm(conv(v, 'USD', o), o); };
 const today = () => new Date().toLocaleDateString('sv-SE');
 const dayAdd = (d, n) => { const x = new Date(d + 'T12:00:00'); x.setDate(x.getDate() + n); return x.toLocaleDateString('sv-SE'); };
 const fDate = d => d ? String(d).split('-').reverse().join('/') : '';
 const fTime = ts => ts ? new Date(+ts).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '';
-const saleUsd = s => toUsd(s.total, s.moeda);
+// a sale keeps the dollar rate of the moment it was made: later rate changes do not alter its value
+const saleIn = (s, cur) => cur === s.moeda ? +s.total : +s.cotacao ? (cur === 'USD' ? s.total / s.cotacao : s.total * s.cotacao) : conv(s.total, s.moeda, cur);
+const saleUsd = s => saleIn(s, 'USD');
+const fRate = v => 'R$ ' + (+v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
 const PERMS = [
   ['dash', 'Dashboard', 'Ver o painel e as vendas de todas as lojas'],
   ['vendas_PY', 'Vender no Paraguay', 'Aba Vendas Paraguay'],
@@ -255,7 +257,7 @@ function saleRow(s, opts = {}) {
   const itens = (s.itens || []).map(i => `${i.qtd}× ${esc(i.nome)}`).join(', ');
   const o = s.moeda === 'USD' ? 'BRL' : 'USD';
   const actn = can('cancelar') && !s.cancelada ? `<button class="btn small danger" data-cancel="${s.id}">Cancelar</button>` : (s.cancelada ? '<span class="pill bad">cancelada</span>' : '');
-  return `<tr class="${s.cancelada ? 'cancel' : ''}">${opts.date ? `<td class="num">${fDate(s.data)}</td>` : ''}<td class="num">${fTime(s.ts)}</td>${opts.loja ? `<td><span class="pill ${s.loja.toLowerCase()}">${s.loja}</span></td>` : ''}<td style="max-width:340px">${itens}${s.cliente ? `<div class="hint">${esc(s.cliente)}</div>` : ''}</td><td>${esc(s.vendedorNome)}</td><td>${esc(s.pagamento)}</td><td class="r num"><b>${fm(s.total, s.moeda)}</b><div class="hint">${fm(conv(s.total, s.moeda, o), o)}</div></td><td class="r">${actn}</td></tr>`;
+  return `<tr class="${s.cancelada ? 'cancel' : ''}">${opts.date ? `<td class="num">${fDate(s.data)}</td>` : ''}<td class="num">${fTime(s.ts)}</td>${opts.loja ? `<td><span class="pill ${s.loja.toLowerCase()}">${s.loja}</span></td>` : ''}<td style="max-width:340px">${itens}${s.cliente ? `<div class="hint">${esc(s.cliente)}</div>` : ''}</td><td>${esc(s.vendedorNome)}</td><td>${esc(s.pagamento)}</td><td class="r num"><b>${fm(s.total, s.moeda)}</b><div class="hint">${fm(saleIn(s, o), o)}</div>${+s.cotacao ? `<div class="hint">câmbio ${fRate(s.cotacao)}</div>` : ''}</td><td class="r">${actn}</td></tr>`;
 }
 const saleHead = (opts = {}) => `<thead><tr>${opts.date ? '<th>Data</th>' : ''}<th>Hora</th>${opts.loja ? '<th>Loja</th>' : ''}<th>Itens</th><th>Vendedor</th><th>Pagamento</th><th class="r">Valor</th><th></th></tr></thead>`;
 document.addEventListener('click', async e => {
@@ -266,8 +268,8 @@ document.addEventListener('click', async e => {
 function renderSaleData(l) {
   if (S.carts[l].items.length) renderTotals(l);
   const list = S.sales.filter(s => s.loja === l && s.data === today());
-  const ok = list.filter(s => !s.cancelada), totUsd = ok.reduce((a, s) => a + (saleUsd(s) || 0), 0), cur = LOJAS[l].cur, o = cur === 'USD' ? 'BRL' : 'USD';
-  $('#ts-' + l).innerHTML = `<span class="pill">${ok.length} vendas</span><span class="pill ${l.toLowerCase()} num">${fm(conv(totUsd, 'USD', cur), cur)}</span><span class="pill num">${fm(conv(totUsd, 'USD', o), o)}</span>`;
+  const ok = list.filter(s => !s.cancelada), cur = LOJAS[l].cur, o = cur === 'USD' ? 'BRL' : 'USD', tot = c => ok.reduce((a, s) => a + (saleIn(s, c) || 0), 0);
+  $('#ts-' + l).innerHTML = `<span class="pill">${ok.length} vendas</span><span class="pill ${l.toLowerCase()} num">${fm(tot(cur), cur)}</span><span class="pill num">${fm(tot(o), o)}</span>`;
   $('#today-' + l).innerHTML = list.length ? `<table>${saleHead()}<tbody>${list.map(s => saleRow(s)).join('')}</tbody></table>` : '<div class="empty">Nenhuma venda hoje nesta loja ainda.</div>';
 }
 
@@ -286,34 +288,35 @@ function renderDash() {
   $$('#dispCur button').forEach(b => b.setAttribute('aria-pressed', b.dataset.c === S.disp));
   const from = periodStart(), t = today();
   const sales = S.sales.filter(s => !s.cancelada && s.data >= from && s.data <= t);
-  const sum = arr => arr.reduce((a, s) => a + (saleUsd(s) || 0), 0);
+  const D = S.disp, alt = D === 'USD' ? 'BRL' : 'USD', fmD = v => fm(v, D);
+  const sum = (arr, c = D) => arr.reduce((a, s) => a + (saleIn(s, c) || 0), 0);
   const py = sales.filter(s => s.loja === 'PY'), sp = sales.filter(s => s.loja === 'SP');
-  const tot = sum(sales), cost = sales.reduce((a, s) => a + (+s.custoUsd || 0), 0), profit = tot - cost;
+  const tot = sum(sales), cost = sales.reduce((a, s) => a + (+s.custoUsd || 0), 0), profit = tot - (conv(cost, 'USD', D) || 0);
   const buys = S.purchases.filter(p => p.data >= from && p.data <= t), buyUsd = buys.reduce((a, p) => a + (toUsd(p.total, p.moeda) || 0), 0);
   const openImp = S.imports.filter(i => !i.recebida);
   const items = sales.reduce((a, s) => a + (s.itens || []).reduce((b, i) => b + i.qtd, 0), 0);
   const k = (cls, label, v, sub) => `<div class="kpi ${cls}"><span class="lbl">${label}</span><span class="v">${v}</span><span class="s">${sub}</span></div>`;
   $('#kpis').innerHTML =
-    k('', 'Faturamento total', fd(tot), fdAlt(tot)) +
-    k('py', 'Paraguay', fd(sum(py)), `${py.length} vendas · ${tot ? Math.round(sum(py) / tot * 100) : 0}%`) +
-    k('sp', 'São Paulo', fd(sum(sp)), `${sp.length} vendas · ${tot ? Math.round(sum(sp) / tot * 100) : 0}%`) +
-    k('', 'Lucro bruto estimado', fd(profit), tot ? `margem ${Math.round(profit / tot * 100)}%` : 'margem —') +
-    k('', 'Ticket médio', fd(sales.length ? tot / sales.length : 0), `${sales.length} vendas · ${items} itens`) +
+    k('', 'Faturamento total', fmD(tot), fm(sum(sales, alt), alt)) +
+    k('py', 'Paraguay', fmD(sum(py)), `${py.length} vendas · ${tot ? Math.round(sum(py) / tot * 100) : 0}%`) +
+    k('sp', 'São Paulo', fmD(sum(sp)), `${sp.length} vendas · ${tot ? Math.round(sum(sp) / tot * 100) : 0}%`) +
+    k('', 'Lucro bruto estimado', fmD(profit), tot ? `margem ${Math.round(profit / tot * 100)}%` : 'margem —') +
+    k('', 'Ticket médio', fmD(sales.length ? tot / sales.length : 0), `${sales.length} vendas · ${items} itens`) +
     k('', 'Compras no período', fd(buyUsd), `${buys.length} entradas`) +
     k('py', 'Importações em andamento', fd(openImp.reduce((a, i) => a + impCalc(i).total, 0)), `${openImp.length} processos`);
   const byMonth = S.period === 'year', keys = [];
   if (byMonth) { const y = t.slice(0, 4); for (let m = 1; m <= +t.slice(5, 7); m++) keys.push(y + '-' + String(m).padStart(2, '0')); }
   else for (let d = from; d <= t; d = dayAdd(d, 1)) keys.push(d);
   const agg = Object.fromEntries(keys.map(x => [x, { PY: 0, SP: 0 }]));
-  sales.forEach(s => { const key = byMonth ? s.data.slice(0, 7) : s.data; if (agg[key]) agg[key][s.loja] += conv(saleUsd(s) || 0, 'USD', S.disp) || 0; });
+  sales.forEach(s => { const key = byMonth ? s.data.slice(0, 7) : s.data; if (agg[key]) agg[key][s.loja] += saleIn(s, D) || 0; });
   $('#chartTitle').textContent = byMonth ? 'Vendas por mês' : 'Vendas por dia';
   $('#chart').innerHTML = stackChart(keys.map(x => ({ k: x, a: agg[x].PY, b: agg[x].SP })), byMonth);
-  const pm = {}; sales.forEach(s => { const f = (saleUsd(s) || 0) / (s.total || 1); (s.itens || []).forEach(i => { const key = i.pid || ('a:' + i.nome); pm[key] = pm[key] || { nome: i.nome, q: 0, v: 0, PY: 0, SP: 0 }; const v = i.qtd * i.preco * f; pm[key].q += i.qtd; pm[key].v += v; pm[key][s.loja] += v; }); });
-  bars($('#topProd'), Object.values(pm).sort((a, b) => b.v - a.v).slice(0, 8).map(p => ({ label: `${esc(p.nome)} <span class="hint">· ${p.q} un.</span>`, v: p.v, text: fd(p.v), parts: [{ v: p.PY, c: 'var(--py)' }, { v: p.SP, c: 'var(--sp)' }] })));
-  const sm = {}; sales.forEach(s => { const key = s.vendedorId; sm[key] = sm[key] || { nome: s.vendedorNome, n: 0, v: 0, PY: 0, SP: 0 }; const v = saleUsd(s) || 0; sm[key].n++; sm[key].v += v; sm[key][s.loja] += v; });
-  bars($('#topSeller'), Object.values(sm).sort((a, b) => b.v - a.v).map(p => ({ label: `${esc(p.nome)} <span class="hint">· ${p.n} vendas</span>`, v: p.v, text: fd(p.v), parts: [{ v: p.PY, c: 'var(--py)' }, { v: p.SP, c: 'var(--sp)' }] })));
-  const ym = {}; sales.forEach(s => { ym[s.pagamento] = (ym[s.pagamento] || 0) + (saleUsd(s) || 0); });
-  bars($('#payMix'), Object.entries(ym).sort((a, b) => b[1] - a[1]).map(([n, v]) => ({ label: esc(n), v, text: `${fd(v)} · ${tot ? Math.round(v / tot * 100) : 0}%` })), 'var(--accent)');
+  const pm = {}; sales.forEach(s => { const f = (saleIn(s, D) || 0) / (s.total || 1); (s.itens || []).forEach(i => { const key = i.pid || ('a:' + i.nome); pm[key] = pm[key] || { nome: i.nome, q: 0, v: 0, PY: 0, SP: 0 }; const v = i.qtd * i.preco * f; pm[key].q += i.qtd; pm[key].v += v; pm[key][s.loja] += v; }); });
+  bars($('#topProd'), Object.values(pm).sort((a, b) => b.v - a.v).slice(0, 8).map(p => ({ label: `${esc(p.nome)} <span class="hint">· ${p.q} un.</span>`, v: p.v, text: fmD(p.v), parts: [{ v: p.PY, c: 'var(--py)' }, { v: p.SP, c: 'var(--sp)' }] })));
+  const sm = {}; sales.forEach(s => { const key = s.vendedorId; sm[key] = sm[key] || { nome: s.vendedorNome, n: 0, v: 0, PY: 0, SP: 0 }; const v = saleIn(s, D) || 0; sm[key].n++; sm[key].v += v; sm[key][s.loja] += v; });
+  bars($('#topSeller'), Object.values(sm).sort((a, b) => b.v - a.v).map(p => ({ label: `${esc(p.nome)} <span class="hint">· ${p.n} vendas</span>`, v: p.v, text: fmD(p.v), parts: [{ v: p.PY, c: 'var(--py)' }, { v: p.SP, c: 'var(--sp)' }] })));
+  const ym = {}; sales.forEach(s => { ym[s.pagamento] = (ym[s.pagamento] || 0) + (saleIn(s, D) || 0); });
+  bars($('#payMix'), Object.entries(ym).sort((a, b) => b[1] - a[1]).map(([n, v]) => ({ label: esc(n), v, text: `${fmD(v)} · ${tot ? Math.round(v / tot * 100) : 0}%` })), 'var(--accent)');
   const exp = S.products.filter(p => p.validade && daysTo(p.validade) <= 90 && (stockOf(p, 'PY') > 0 || stockOf(p, 'SP') > 0)).sort((a, b) => a.validade < b.validade ? -1 : 1).slice(0, 12);
   $('#expiring').innerHTML = exp.length ? `<table><thead><tr><th>Produto</th><th>Lote</th><th>Validade</th><th class="r">Estoque</th></tr></thead><tbody>${exp.map(p => `<tr><td>${esc(p.nome)}</td><td class="num">${esc(p.lote || '—')}</td><td style="white-space:nowrap">${valPill(p.validade)}</td><td class="r num">${stockOf(p, 'PY') + stockOf(p, 'SP')}</td></tr>`).join('')}</tbody></table>` : '<div class="empty">Nenhum produto em estoque vencido ou vencendo nos próximos 90 dias.</div>';
   const low = S.products.filter(p => stockOf(p, 'PY') <= 3 || stockOf(p, 'SP') <= 3).slice(0, 12);
@@ -344,9 +347,9 @@ function stackChart(rows, byMonth) {
 function histRows() { const l = $('#hLoja').value, f = $('#hFrom').value || '0000', to = $('#hTo').value || '9999'; return S.sales.filter(s => (!l || s.loja === l) && s.data >= f && s.data <= to); }
 function renderHist() {
   if (!$('#hFrom').value) { $('#hFrom').value = dayAdd(today(), -29); $('#hTo').value = today(); }
-  const rows = histRows(), ok = rows.filter(s => !s.cancelada), tot = ok.reduce((a, s) => a + (saleUsd(s) || 0), 0);
+  const rows = histRows(), ok = rows.filter(s => !s.cancelada), tot = c => ok.reduce((a, s) => a + (saleIn(s, c) || 0), 0);
   $('#csvBtn').href = `/api/export/vendas.csv?loja=${encodeURIComponent($('#hLoja').value)}&de=${$('#hFrom').value}&ate=${$('#hTo').value}`;
-  $('#hKpis').innerHTML = `<div class="kpi"><span class="lbl">Vendas no filtro</span><span class="v">${ok.length}</span><span class="s">${rows.length - ok.length} canceladas</span></div><div class="kpi"><span class="lbl">Total em dólar</span><span class="v">${fm(tot, 'USD')}</span><span class="s">cotação atual</span></div><div class="kpi"><span class="lbl">Total em real</span><span class="v">${fm(toBrl(tot, 'USD'), 'BRL')}</span><span class="s">cotação atual</span></div>`;
+  $('#hKpis').innerHTML = `<div class="kpi"><span class="lbl">Vendas no filtro</span><span class="v">${ok.length}</span><span class="s">${rows.length - ok.length} canceladas</span></div><div class="kpi"><span class="lbl">Total em dólar</span><span class="v">${fm(tot('USD'), 'USD')}</span><span class="s">câmbio do dia de cada venda</span></div><div class="kpi"><span class="lbl">Total em real</span><span class="v">${fm(tot('BRL'), 'BRL')}</span><span class="s">câmbio do dia de cada venda</span></div>`;
   $('#hTable').innerHTML = rows.length ? `<table>${saleHead({ date: 1, loja: 1 })}<tbody>${rows.slice(0, 500).map(s => saleRow(s, { date: 1, loja: 1 })).join('')}</tbody></table>${rows.length > 500 ? '<div class="hint" style="padding:8px">Mostrando as 500 mais recentes. Use o CSV para ver todas.</div>' : ''}` : '<div class="empty">Nenhuma venda neste filtro.</div>';
 }
 

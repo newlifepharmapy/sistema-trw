@@ -55,6 +55,8 @@ function client() {
   let ad = (await ana('/api/data')).data;
   assert(ad.me.permissoes.join() === 'vendas_PY,cancelar,cambio' && ad.me.loja === 'PY', 'permissões desconhecidas são ignoradas');
   assert((await ana('/api/cotacao', 'POST', { valor: 5.6 })).status === 200, 'com permissão de câmbio ela atualiza a cotação');
+  const csv2 = String((await adm('/api/export/vendas.csv?loja=SP')).data);
+  assert(csv2.includes('"54,00";"9,82";"54,00";"5,5"'), 'venda em real mantém o câmbio do momento da venda (5,50) depois que a cotação mudou');
   assert((await ana('/api/products', 'POST', { nome: 'X' })).status === 403, 'sem permissão de produtos ela não cadastra');
   assert((await ana('/api/users', 'POST', { nome: 'Y', login: 'yyy', senha: '1234' })).status === 403, 'sem permissão de usuários ela não cria usuários');
   const anaId = (await adm('/api/data')).data.users.find(u => u.login === 'ana').id;

@@ -301,13 +301,13 @@ app.get('/api/export/vendas.csv', auth, need('exportar'), h(async (req, res) => 
   if (isDate(de)) { p.push(de); w.push(`data >= $${p.length}`); }
   if (isDate(ate)) { p.push(ate); w.push(`data <= $${p.length}`); }
   const { rows } = await pool.query(`select * from sales ${w.length ? 'where ' + w.join(' and ') : ''} order by ts desc`, p);
-  const rate = await currentRate();
-  const head = ['Data', 'Hora', 'Loja', 'Vendedor', 'Cliente', 'Itens', 'Pagamento', 'Moeda', 'Valor', 'Valor US$ (cotação atual)', 'Valor R$ (cotação atual)', 'Cotação na venda', 'Cancelada'];
+  const head = ['Data', 'Hora', 'Loja', 'Vendedor', 'Cliente', 'Itens', 'Pagamento', 'Moeda', 'Valor', 'Valor US$', 'Valor R$', 'Câmbio da venda', 'Cancelada'];
   const lines = [head.map(csvq).join(';')].concat(rows.map(s => {
-    const usd = s.moeda === 'USD' ? s.total : (rate ? s.total / rate : 0);
+    // values use the rate saved with the sale, so they never change afterwards
+    const rate = +s.cotacao, usd = s.moeda === 'USD' ? s.total : (rate ? s.total / rate : 0), brl = s.moeda === 'BRL' ? s.total : usd * rate;
     return [s.data.split('-').reverse().join('/'), new Date(+s.ts).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: process.env.TZ_LOJA || 'America/Asuncion' }),
       s.loja === 'PY' ? 'Paraguay' : 'São Paulo', s.vendedor_nome, s.cliente, s.itens.map(i => `${i.qtd}x ${i.nome}`).join(', '), s.pagamento, s.moeda,
-      br2(s.total), br2(usd), br2(rate ? usd * rate : 0), s.cotacao, s.cancelada ? 'sim' : ''].map(csvq).join(';');
+      br2(s.total), br2(usd), br2(brl), rate.toLocaleString('pt-BR', { maximumFractionDigits: 4 }), s.cancelada ? 'sim' : ''].map(csvq).join(';');
   }));
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="vendas_${todayStr()}.csv"`);
