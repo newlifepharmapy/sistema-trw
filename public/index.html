@@ -134,7 +134,7 @@
 
       <!-- STOCK -->
       <section class="pane" id="pane-stock" hidden>
-        <div class="toolbar"><input type="search" id="sFilter" placeholder="Filtrar por nome, código ou lote"></div>
+        <div class="toolbar"><input type="search" id="sFilter" placeholder="Filtrar por nome, código ou lote"><select id="sGrupo" class="gm-sel" aria-label="Grupo"></select><select id="sMarca" class="gm-sel" aria-label="Marca"></select></div>
         <div class="kpis" id="sKpis"></div>
         <div class="card"><div class="tablewrap" id="stockList"></div></div>
       </section>
@@ -171,6 +171,8 @@
           <div class="fields">
             <label class="field"><span class="lbl">Código</span><input type="text" id="pCode"></label>
             <label class="field span2"><span class="lbl">Nome</span><input type="text" id="pName"></label>
+            <label class="field"><span class="lbl">Grupo</span><input type="text" id="pGrupo" list="dlGrupo" placeholder="ex.: Analgésicos"></label>
+            <label class="field"><span class="lbl">Marca</span><input type="text" id="pMarca" list="dlMarca" placeholder="ex.: Medley"></label>
             <label class="field"><span class="lbl">Lote</span><input type="text" id="pLote"></label>
             <label class="field"><span class="lbl">Validade</span><input type="date" id="pVal"></label>
             <label class="field"><span class="lbl">Custo (US$)</span><input type="number" id="pCost" step="0.01" min="0"></label>
@@ -364,6 +366,7 @@
   </div>
 </div>
 
+<datalist id="dlGrupo"></datalist><datalist id="dlMarca"></datalist>
 <div id="toastHost"></div>
 <div id="printArea" aria-hidden="true"></div>
 <script src="/app.js"></script>

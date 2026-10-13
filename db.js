@@ -66,6 +66,9 @@ create table if not exists products (
   criado_em timestamptz not null default now()
 );
 
+alter table products add column if not exists grupo text not null default '';
+alter table products add column if not exists marca text not null default '';
+
 create table if not exists sales (
   id serial primary key,
   loja text not null check (loja in ('PY','SP')),

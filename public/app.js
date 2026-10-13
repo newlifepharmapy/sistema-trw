@@ -119,6 +119,7 @@ async function loadData() {
   const d = await api('/data');
   Object.assign(S, { v: d.v, settings: d.settings, historico: d.historico, products: d.products, sales: d.sales, purchases: d.purchases, imports: d.imports, users: d.users });
   S.rate = d.settings && +d.settings.cotacao || null;
+  fillDatalists();
   // permissions changed by a supervisor take effect on the next refresh, without logging out
   if (d.me && JSON.stringify(d.me) !== JSON.stringify(S.me)) { S.me = d.me; applyPerms(); if (S.tab && !allowedTab(S.tab)) { show(['dash', 'PY', 'SP', 'stock'].find(allowedTab)); return setLive(true); } }
   setLive(true); refresh();
@@ -478,8 +479,30 @@ function renderImp() {
 /* ---------- total stock ---------- */
 const FLAG_PY = '<svg class="flag-ic" viewBox="0 0 30 20" role="img" aria-label="Bandeira do Paraguay"><rect width="30" height="20" fill="#0038a8"/><rect width="30" height="13.34" fill="#fff"/><rect width="30" height="6.67" fill="#d52b1e"/><circle cx="15" cy="10" r="2.3" fill="none" stroke="#0038a8" stroke-width=".7"/><circle cx="15" cy="10" r=".8" fill="#fedf00"/></svg>';
 const FLAG_BR = '<svg class="flag-ic" viewBox="0 0 30 20" role="img" aria-label="Bandeira do Brasil"><rect width="30" height="20" fill="#009b3a"/><path d="M15 2.2 27.2 10 15 17.8 2.8 10Z" fill="#fedf00"/><circle cx="15" cy="10" r="4.4" fill="#002776"/><path d="M10.8 9.2q4.4-1.4 8.4 1.6" stroke="#fff" stroke-width=".7" fill="none"/></svg>';
-$('#sFilter').oninput = renderStock;
-const matchP = (p, f) => !f || p.nome.toLowerCase().includes(f) || (p.codigo || '').toLowerCase().includes(f) || (p.lote || '').toLowerCase().includes(f);
+$('#sFilter').oninput = renderStock; $('#sGrupo').onchange = renderStock; $('#sMarca').onchange = renderStock;
+const matchP = (p, f) => !f || [p.nome, p.codigo, p.lote, p.grupo, p.marca].some(x => (x || '').toLowerCase().includes(f));
+/* ---------- groups and brands ---------- */
+const SEM_G = 'Sem grupo', SEM_M = 'Sem marca';
+const gOf = p => (p.grupo || '').trim() || SEM_G, mOf = p => (p.marca || '').trim() || SEM_M;
+const uniq = (fn) => [...new Set(S.products.map(fn))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+// fills the group/brand selects of a toolbar, keeping the current choice
+function fillGM(gSel, mSel) {
+  [[gSel, gOf, 'Todos os grupos'], [mSel, mOf, 'Todas as marcas']].forEach(([el, fn, all]) => {
+    if (!el || document.activeElement === el) return;
+    const v = el.value; el.innerHTML = `<option value="">${all}</option>` + uniq(fn).map(x => `<option>${esc(x)}</option>`).join(''); el.value = uniq(fn).includes(v) ? v : '';
+  });
+}
+const gmMatch = (p, gSel, mSel) => (!gSel || !gSel.value || gOf(p) === gSel.value) && (!mSel || !mSel.value || mOf(p) === mSel.value);
+function fillDatalists() {
+  $('#dlGrupo').innerHTML = uniq(p => (p.grupo || '').trim()).filter(Boolean).map(x => `<option value="${esc(x)}">`).join('');
+  $('#dlMarca').innerHTML = uniq(p => (p.marca || '').trim()).filter(Boolean).map(x => `<option value="${esc(x)}">`).join('');
+}
+// table rows split by group, with a heading row per group
+function groupedRows(L, cols, rowFn, subFn) {
+  const by = {}; L.forEach(p => (by[gOf(p)] = by[gOf(p)] || []).push(p));
+  return Object.keys(by).sort((a, b) => a === SEM_G ? 1 : b === SEM_G ? -1 : a.localeCompare(b, 'pt-BR'))
+    .map(g => `<tr class="grp-row"><td colspan="${cols}"><b>${esc(g)}</b> <span class="hint">· ${by[g].length} produtos${subFn ? ' · ' + subFn(by[g]) : ''}</span></td></tr>` + by[g].map(rowFn).join('')).join('');
+}
 function renderStock() {
   const tot = l => S.products.reduce((a, p) => a + Math.max(0, stockOf(p, l)), 0);
   const val = l => S.products.reduce((a, p) => a + Math.max(0, stockOf(p, l)) * (+p.custo || 0), 0);
@@ -488,10 +511,11 @@ function renderStock() {
   $('#sKpis').innerHTML = k('', 'Estoque total', nf0(all), `${S.products.length} produtos · custo ${fm(val('PY') + val('SP'), 'USD')}`)
     + k('py', FLAG_PY + 'Estoque PY', nf0(py), `${all ? Math.round(py / all * 100) : 0}% do total · custo ${fm(val('PY'), 'USD')}`)
     + k('sp', FLAG_BR + 'Estoque BR', nf0(br), `${all ? Math.round(br / all * 100) : 0}% do total · custo ${fm(val('SP'), 'USD')}`);
-  const f = $('#sFilter').value.trim().toLowerCase(), L = S.products.filter(p => matchP(p, f));
+  fillGM($('#sGrupo'), $('#sMarca'));
+  const f = $('#sFilter').value.trim().toLowerCase(), L = S.products.filter(p => matchP(p, f) && gmMatch(p, $('#sGrupo'), $('#sMarca')));
   const cell = n => `<td class="r"><span class="pill num ${n <= 0 ? 'bad' : n <= 3 ? 'warn' : ''}">${nf0(n)}</span></td>`;
   const sumL = fn => nf0(L.reduce((a, p) => a + fn(p), 0));
-  $('#stockList').innerHTML = L.length ? `<table><thead><tr><th>Código</th><th>Produto</th><th>Lote</th><th>Validade</th><th class="r">Total</th><th class="r"><span class="row" style="justify-content:flex-end;gap:6px">${FLAG_PY}PY</span></th><th class="r"><span class="row" style="justify-content:flex-end;gap:6px">${FLAG_BR}BR</span></th></tr></thead><tbody>${L.map(p => `<tr><td class="num">${esc(p.codigo || '')}</td><td>${esc(p.nome)}</td><td class="num">${esc(p.lote || '—')}</td><td style="white-space:nowrap">${valPill(p.validade)}</td><td class="r num"><b>${nf0(stockOf(p, 'PY') + stockOf(p, 'SP'))}</b></td>${cell(stockOf(p, 'PY'))}${cell(stockOf(p, 'SP'))}</tr>`).join('')}</tbody><tfoot><tr><td></td><td>Total</td><td></td><td></td><td class="r num">${sumL(p => stockOf(p, 'PY') + stockOf(p, 'SP'))}</td><td class="r num">${sumL(p => stockOf(p, 'PY'))}</td><td class="r num">${sumL(p => stockOf(p, 'SP'))}</td></tr></tfoot></table>`
+  $('#stockList').innerHTML = L.length ? `<table><thead><tr><th>Código</th><th>Produto</th><th>Marca</th><th>Lote</th><th>Validade</th><th class="r">Total</th><th class="r"><span class="row" style="justify-content:flex-end;gap:6px">${FLAG_PY}PY</span></th><th class="r"><span class="row" style="justify-content:flex-end;gap:6px">${FLAG_BR}BR</span></th></tr></thead><tbody>${groupedRows(L, 8, p => `<tr><td class="num">${esc(p.codigo || '')}</td><td>${esc(p.nome)}</td><td>${esc(p.marca || '—')}</td><td class="num">${esc(p.lote || '—')}</td><td style="white-space:nowrap">${valPill(p.validade)}</td><td class="r num"><b>${nf0(stockOf(p, 'PY') + stockOf(p, 'SP'))}</b></td>${cell(stockOf(p, 'PY'))}${cell(stockOf(p, 'SP'))}</tr>`, a => nf0(a.reduce((x, p) => x + stockOf(p, 'PY') + stockOf(p, 'SP'), 0)) + ' un.')}</tbody><tfoot><tr><td></td><td>Total</td><td></td><td></td><td></td><td class="r num">${sumL(p => stockOf(p, 'PY') + stockOf(p, 'SP'))}</td><td class="r num">${sumL(p => stockOf(p, 'PY'))}</td><td class="r num">${sumL(p => stockOf(p, 'SP'))}</td></tr></tfoot></table>`
     : `<div class="empty">${S.products.length ? 'Nenhum produto encontrado.' : 'Nenhum produto cadastrado ainda.'}</div>`;
 }
 
@@ -505,11 +529,13 @@ function tabText(cur) {
   const st = $('#tStock').value, f = $('#tFilter').value.trim().toLowerCase();
   const qty = p => st === 'PY' || st === 'SP' ? stockOf(p, st) : stockOf(p, 'PY') + stockOf(p, 'SP');
   const L = S.products.filter(p => matchP(p, f) && (st === 'all' || (st === 'any' ? stockOf(p, 'PY') > 0 || stockOf(p, 'SP') > 0 : stockOf(p, st) > 0)) && priceFor(p, cur) > 0)
-    .sort((a, b) => a.nome.localeCompare(b.nome));
+    .sort((a, b) => gOf(a).localeCompare(gOf(b), 'pt-BR') || a.nome.localeCompare(b.nome));
   const now = new Date(), title = ($('#tTitle').value.trim() || 'TABELA DE PREÇOS').toUpperCase();
   const out = [`*${title} · ${cur === 'USD' ? 'US$' : 'R$'}*`, `_Atualizada em ${now.toLocaleDateString('pt-BR')} às ${fTime(now)}${S.rate ? ' · Câmbio R$ ' + nNum(S.rate, 4).replace(/0{1,2}$/, '') : ''}_`, ''];
   if (!L.length) out.push('Nenhum produto neste filtro.');
+  const groups = L.some(p => p.grupo); let lastG = null;
   L.forEach(p => {
+    if (groups && gOf(p) !== lastG) { lastG = gOf(p); out.push((out[out.length - 1] === "" ? "" : "\n") + `*${(lastG === SEM_G ? "Outros" : lastG).toUpperCase()}*`); }
     const extra = [$('#tVal').checked && p.validade ? 'val. ' + p.validade.slice(5, 7) + '/' + p.validade.slice(2, 4) : '', $('#tQty').checked ? qty(p) + ' un.' : ''].filter(Boolean).join(' · ');
     out.push(`▪️ ${$('#tCode').checked && p.codigo ? p.codigo + ' · ' : ''}${p.nome}${extra ? ` (${extra})` : ''} — *${nMoney(priceFor(p, cur), cur)}*`);
   });
@@ -531,11 +557,11 @@ document.addEventListener('click', async e => {
 // cost and price are in dollars and converted at the current rate, so these values follow the dollar
 function buildStorePane(l) {
   $('#pane-st' + l).innerHTML = `
-  <div class="toolbar"><input type="search" id="sf-${l}" placeholder="Filtrar por nome, código ou lote">
+  <div class="toolbar"><input type="search" id="sf-${l}" placeholder="Filtrar por nome, código ou lote"><select id="sg-g-${l}" class="gm-sel" aria-label="Grupo"></select><select id="sg-m-${l}" class="gm-sel" aria-label="Marca"></select>
     <div class="seg" id="sv-${l}"><button data-v="com">Com estoque</button><button data-v="todos">Todos</button><button data-v="sem">Sem estoque</button></div></div>
   <div class="kpis" id="sk-${l}"></div>
   <div class="card"><div class="tablewrap" id="sl-${l}"></div></div>`;
-  $('#sf-' + l).oninput = () => renderStore(l);
+  $('#sf-' + l).oninput = () => renderStore(l); $('#sg-g-' + l).onchange = () => renderStore(l); $('#sg-m-' + l).onchange = () => renderStore(l);
   $('#sv-' + l).onclick = e => { const b = e.target.closest('button'); if (b) { S['stView' + l] = b.dataset.v; renderStore(l); } };
 }
 function renderStore(l) {
@@ -554,16 +580,17 @@ function renderStore(l) {
     + k('', 'Valor de venda', fm(saleCur, cur), fm(conv(saleCur, cur, o), o))
     + k('', 'Lucro potencial', fm(saleUsd - costUsd, 'USD'), saleUsd ? `margem ${Math.round((saleUsd - costUsd) / saleUsd * 100)}%` : 'margem —')
     + k('', 'Atenção', `${expiring} vencendo`, `${empty} produtos sem estoque`);
+  fillGM($('#sg-g-' + l), $('#sg-m-' + l));
   const f = $('#sf-' + l).value.trim().toLowerCase();
-  const L = S.products.filter(p => matchP(p, f) && (view === 'todos' || (view === 'com' ? qty(p) > 0 : qty(p) <= 0))).sort((a, b) => qty(b) - qty(a) || a.nome.localeCompare(b.nome));
+  const L = S.products.filter(p => matchP(p, f) && gmMatch(p, $('#sg-g-' + l), $('#sg-m-' + l)) && (view === 'todos' || (view === 'com' ? qty(p) > 0 : qty(p) <= 0))).sort((a, b) => qty(b) - qty(a) || a.nome.localeCompare(b.nome));
   const tot = fn => L.reduce((a, p) => a + Math.max(0, qty(p)) * fn(p), 0);
-  $('#sl-' + l).innerHTML = L.length ? `<table><thead><tr><th>Código</th><th>Produto</th><th>Lote</th><th>Validade</th><th class="r">Qtd</th><th class="r">Custo un.</th><th class="r">Custo total</th><th class="r">Preço un.</th><th class="r">Valor de venda</th></tr></thead><tbody>${L.map(p => `<tr><td class="num">${esc(p.codigo || '')}</td><td>${esc(p.nome)}</td><td class="num">${esc(p.lote || '—')}</td><td style="white-space:nowrap">${valPill(p.validade)}</td>
+  $('#sl-' + l).innerHTML = L.length ? `<table><thead><tr><th>Código</th><th>Produto</th><th>Marca</th><th>Lote</th><th>Validade</th><th class="r">Qtd</th><th class="r">Custo un.</th><th class="r">Custo total</th><th class="r">Preço un.</th><th class="r">Valor de venda</th></tr></thead><tbody>${groupedRows(L, 10, p => `<tr><td class="num">${esc(p.codigo || '')}</td><td>${esc(p.nome)}</td><td>${esc(p.marca || '—')}</td><td class="num">${esc(p.lote || '—')}</td><td style="white-space:nowrap">${valPill(p.validade)}</td>
       <td class="r"><span class="pill num ${qty(p) <= 0 ? 'bad' : qty(p) <= 3 ? 'warn' : ''}">${nf0(qty(p))}</span></td>
       <td class="r num">${fm(+p.custo || 0, 'USD')}<div class="hint">${fm(costIn(p, 'BRL'), 'BRL')}</div></td>
       <td class="r num">${fm(Math.max(0, qty(p)) * (+p.custo || 0), 'USD')}</td>
       <td class="r num">${fm(price(p), cur)}<div class="hint">${fm(conv(price(p), cur, o), o)}</div></td>
-      <td class="r num"><b>${fm(Math.max(0, qty(p)) * price(p), cur)}</b><div class="hint">${fm(conv(Math.max(0, qty(p)) * price(p), cur, o), o)}</div></td></tr>`).join('')}</tbody>
-      <tfoot><tr><td></td><td>Total</td><td></td><td></td><td class="r num">${nf0(L.reduce((a, p) => a + Math.max(0, qty(p)), 0))}</td><td></td><td class="r num">${fm(tot(p => +p.custo || 0), 'USD')}</td><td></td><td class="r num">${fm(tot(price), cur)}</td></tr></tfoot></table>`
+      <td class="r num"><b>${fm(Math.max(0, qty(p)) * price(p), cur)}</b><div class="hint">${fm(conv(Math.max(0, qty(p)) * price(p), cur, o), o)}</div></td></tr>`, a => nf0(a.reduce((x, p) => x + Math.max(0, qty(p)), 0)) + ' un. · ' + fm(a.reduce((x, p) => x + Math.max(0, qty(p)) * price(p), 0), cur))}</tbody>
+      <tfoot><tr><td></td><td>Total</td><td></td><td></td><td></td><td class="r num">${nf0(L.reduce((a, p) => a + Math.max(0, qty(p)), 0))}</td><td></td><td class="r num">${fm(tot(p => +p.custo || 0), 'USD')}</td><td></td><td class="r num">${fm(tot(price), cur)}</td></tr></tfoot></table>`
     : `<div class="empty">${S.products.length ? 'Nenhum produto neste filtro.' : 'Nenhum produto cadastrado ainda.'}</div>`;
 }
 
@@ -572,14 +599,14 @@ let editP = null;
 $('#pFilter').oninput = renderProd;
 function fillP(p) {
   editP = p?.id || null; $('#pFormTitle').textContent = p ? 'Editar produto' : 'Novo produto'; $('#pCancel').hidden = !p;
-  $('#pCode').value = p?.codigo || ''; $('#pName').value = p?.nome || ''; $('#pLote').value = p?.lote || ''; $('#pVal').value = p?.validade || '';
+  $('#pCode').value = p?.codigo || ''; $('#pName').value = p?.nome || ''; $('#pGrupo').value = p?.grupo || ''; $('#pMarca').value = p?.marca || ''; $('#pLote').value = p?.lote || ''; $('#pVal').value = p?.validade || '';
   $('#pCost').value = p?.custo ?? ''; $('#pPriceUsd').value = p?.precoUsd ?? ''; $('#pPriceBrl').value = p?.precoBrl || '';
   $('#pStPY').value = p ? stockOf(p, 'PY') : ''; $('#pStSP').value = p ? stockOf(p, 'SP') : '';
 }
 $('#pCancel').onclick = () => fillP(null);
 $('#pSave').onclick = async () => {
   if (!$('#pName').value.trim()) return toast('Informe o nome do produto.', true);
-  const doc = { codigo: $('#pCode').value, nome: $('#pName').value, lote: $('#pLote').value, validade: $('#pVal').value, custo: +$('#pCost').value || 0, precoUsd: +$('#pPriceUsd').value || 0, precoBrl: +$('#pPriceBrl').value || 0, estoque: { PY: +$('#pStPY').value || 0, SP: +$('#pStSP').value || 0 } };
+  const doc = { codigo: $('#pCode').value, nome: $('#pName').value, grupo: $('#pGrupo').value, marca: $('#pMarca').value, lote: $('#pLote').value, validade: $('#pVal').value, custo: +$('#pCost').value || 0, precoUsd: +$('#pPriceUsd').value || 0, precoBrl: +$('#pPriceBrl').value || 0, estoque: { PY: +$('#pStPY').value || 0, SP: +$('#pStSP').value || 0 } };
   if (await act(() => editP ? api('/products/' + editP, 'PUT', doc) : api('/products', 'POST', doc), 'Produto salvo.')) fillP(null);
 };
 document.addEventListener('click', async e => {
@@ -593,7 +620,7 @@ function renderProd() {
   const f = $('#pFilter').value.trim().toLowerCase(), L = S.products.filter(p => matchP(p, f));
   $('#prodList').innerHTML = L.length ? `<table><thead><tr><th>Código</th><th>Produto</th><th>Lote</th><th>Validade</th><th class="r">Custo</th><th class="r">Preço US$</th><th class="r">Preço R$</th><th class="r">Margem</th><th class="r">PY</th><th class="r">BR</th>${can('produtos') ? '<th></th>' : ''}</tr></thead><tbody>${L.map(p => {
     const m = +p.precoUsd ? Math.round((p.precoUsd - (+p.custo || 0)) / p.precoUsd * 100) : null;
-    return `<tr><td class="num">${esc(p.codigo || '')}</td><td>${esc(p.nome)}</td><td class="num">${esc(p.lote || '—')}</td><td style="white-space:nowrap">${valPill(p.validade)}</td><td class="r num">${fm(+p.custo || 0, 'USD')}</td><td class="r num">${fm(+p.precoUsd || 0, 'USD')}</td><td class="r num">${fm(priceFor(p, 'BRL'), 'BRL')}${+p.precoBrl ? ' <span class="pill">fixo</span>' : ''}</td><td class="r num">${m == null ? '—' : m + '%'}</td>${['PY', 'SP'].map(l => `<td class="r"><span class="pill num ${stockOf(p, l) <= 0 ? 'bad' : stockOf(p, l) <= 3 ? 'warn' : ''}">${stockOf(p, l)}</span></td>`).join('')}${can('produtos') ? `<td class="r" style="white-space:nowrap"><button class="btn small" data-editp="${p.id}">Editar</button> <button class="btn small danger" data-delp="${p.id}">Excluir</button></td>` : ''}</tr>`;
+    return `<tr><td class="num">${esc(p.codigo || '')}</td><td>${esc(p.nome)}${p.grupo || p.marca ? `<div class="hint">${esc([p.grupo, p.marca].filter(Boolean).join(' · '))}</div>` : ''}</td><td class="num">${esc(p.lote || '—')}</td><td style="white-space:nowrap">${valPill(p.validade)}</td><td class="r num">${fm(+p.custo || 0, 'USD')}</td><td class="r num">${fm(+p.precoUsd || 0, 'USD')}</td><td class="r num">${fm(priceFor(p, 'BRL'), 'BRL')}${+p.precoBrl ? ' <span class="pill">fixo</span>' : ''}</td><td class="r num">${m == null ? '—' : m + '%'}</td>${['PY', 'SP'].map(l => `<td class="r"><span class="pill num ${stockOf(p, l) <= 0 ? 'bad' : stockOf(p, l) <= 3 ? 'warn' : ''}">${stockOf(p, l)}</span></td>`).join('')}${can('produtos') ? `<td class="r" style="white-space:nowrap"><button class="btn small" data-editp="${p.id}">Editar</button> <button class="btn small danger" data-delp="${p.id}">Excluir</button></td>` : ''}</tr>`;
   }).join('')}</tbody></table>` : `<div class="empty">${S.products.length ? 'Nenhum produto encontrado.' : (can('produtos') ? 'Nenhum produto cadastrado. Use o formulário acima para cadastrar o primeiro.' : 'Nenhum produto cadastrado ainda.')}</div>`;
 }
 

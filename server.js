@@ -94,7 +94,7 @@ const need = p => (req, res, next) => (has(req.user, p) ? next() : res.status(40
 const canStore = (u, l) => has(u, 'vendas_' + l);
 
 const pubUser = u => ({ id: u.id, login: u.login, nome: u.nome, papel: u.papel, loja: u.loja, telefone: u.telefone, documento: u.documento, comissao: u.comissao, ativo: u.ativo, permissoes: perms(u) });
-const mapProduct = p => ({ id: p.id, codigo: p.codigo, nome: p.nome, lote: p.lote, validade: p.validade || '', custo: p.custo, precoUsd: p.preco_usd, precoBrl: p.preco_brl, estoque: { PY: p.estoque_py, SP: p.estoque_sp } });
+const mapProduct = p => ({ id: p.id, codigo: p.codigo, nome: p.nome, grupo: p.grupo, marca: p.marca, lote: p.lote, validade: p.validade || '', custo: p.custo, precoUsd: p.preco_usd, precoBrl: p.preco_brl, estoque: { PY: p.estoque_py, SP: p.estoque_sp } });
 const mapSale = s => ({ id: s.id, loja: s.loja, data: s.data, ts: s.ts, moeda: s.moeda, total: s.total, cotacao: s.cotacao, pagamento: s.pagamento, cliente: s.cliente, itens: s.itens, custoUsd: s.custo_usd, vendedorId: s.vendedor_id, vendedorNome: s.vendedor_nome, cancelada: s.cancelada, canceladaPor: s.cancelada_por });
 const mapPurchase = p => ({ id: p.id, data: p.data, ts: p.ts, fornecedor: p.fornecedor, loja: p.loja, moeda: p.moeda, itens: p.itens, subtotal: p.subtotal, fretePct: p.frete_pct, freteValor: p.frete_valor, freteiro: p.freteiro, total: p.total, cotacao: p.cotacao, criadoPor: p.criado_por, cancelada: p.cancelada, canceladaPor: p.cancelada_por });
 const mapImport = i => ({ id: i.id, ref: i.ref, fornecedor: i.fornecedor, origem: i.origem, data: i.data, eta: i.eta || '', status: i.status, itens: i.itens, custos: i.custos, recebida: i.recebida, recebidaEm: i.recebida_em, recebidaPor: i.recebida_por, custoTotal: i.custo_total, ts: i.ts, criadoPor: i.criado_por, cancelada: i.cancelada, canceladaPor: i.cancelada_por });
@@ -283,7 +283,7 @@ app.post('/api/cambio/config', auth, need('cambio'), h(async (req, res) => {
 function productBody(b) {
   const nome = str(b.nome); if (!nome) bad('Informe o nome do produto.');
   const validade = b.validade ? (isDate(b.validade) ? b.validade : bad('Validade inválida.')) : null;
-  return [str(b.codigo, 60), nome, str(b.lote, 60), validade, r2(num(b.custo)), r2(num(b.precoUsd)), r2(num(b.precoBrl)), num(b.estoque?.PY), num(b.estoque?.SP)];
+  return [str(b.codigo, 60), nome, str(b.lote, 60), validade, r2(num(b.custo)), r2(num(b.precoUsd)), r2(num(b.precoBrl)), num(b.estoque?.PY), num(b.estoque?.SP), str(b.grupo, 60), str(b.marca, 60)];
 }
 async function codeTaken(codigo, id) {
   if (!codigo) return false;
@@ -293,13 +293,13 @@ async function codeTaken(codigo, id) {
 app.post('/api/products', auth, need('produtos'), h(async (req, res) => {
   const v = productBody(req.body);
   if (await codeTaken(v[0])) bad('Já existe um produto com este código.');
-  const { rows } = await pool.query(`insert into products (codigo,nome,lote,validade,custo,preco_usd,preco_brl,estoque_py,estoque_sp) values ($1,$2,$3,$4,$5,$6,$7,$8,$9) returning id`, v);
+  const { rows } = await pool.query(`insert into products (codigo,nome,lote,validade,custo,preco_usd,preco_brl,estoque_py,estoque_sp,grupo,marca) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) returning id`, v);
   bump(); res.json({ id: rows[0].id });
 }));
 app.put('/api/products/:id', auth, need('produtos'), h(async (req, res) => {
   const v = productBody(req.body), id = +req.params.id;
   if (await codeTaken(v[0], id)) bad('Já existe um produto com este código.');
-  await pool.query(`update products set codigo=$1,nome=$2,lote=$3,validade=$4,custo=$5,preco_usd=$6,preco_brl=$7,estoque_py=$8,estoque_sp=$9 where id=$10`, [...v, id]);
+  await pool.query(`update products set codigo=$1,nome=$2,lote=$3,validade=$4,custo=$5,preco_usd=$6,preco_brl=$7,estoque_py=$8,estoque_sp=$9,grupo=$10,marca=$11 where id=$12`, [...v, id]);
   bump(); res.json({ ok: true });
 }));
 app.delete('/api/products/:id', auth, need('produtos'), h(async (req, res) => {

@@ -236,3 +236,6 @@ tr.cancel td{color:var(--muted);text-decoration:line-through}
 @media (max-width:760px){.search-row{grid-template-columns:1fr}}
 
 .wa-text{width:100%;min-height:420px;margin-top:10px;font-family:var(--f-num);font-size:13px;line-height:1.5;padding:12px;border:1px solid var(--line-2);border-radius:8px;background:var(--surface-2);color:var(--fg);resize:vertical}
+
+.toolbar .gm-sel{width:auto;max-width:220px}
+tr.grp-row td{background:var(--surface-2);border-top:2px solid var(--line-2);padding-top:10px;padding-bottom:8px}
