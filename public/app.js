@@ -413,6 +413,8 @@ function renderBuyItems() {
   $('#bTotal').textContent = S.buyItems.length ? `${fm(t, cur)}  ·  ${fm(conv(t, cur, o), o)}` : '—';
   $('#bTotalSub').textContent = S.buyItems.length && fon ? `Mercadoria ${fm(sub, cur)} + frete ${fp}% ${fm(fv, cur)}` : '';
 }
+// digits only, the slash goes in by itself: 082029 -> 08/2029
+$('#bVal').addEventListener('input', e => { const d = e.target.value.replace(/\D/g, '').slice(0, 6); e.target.value = d.length > 2 ? d.slice(0, 2) + '/' + d.slice(2) : d; });
 $('#bItems').onclick = e => { const b = e.target.closest('[data-bi]'); if (b) { S.buyItems.splice(+b.dataset.bi, 1); renderBuyItems(); } };
 $('#bSave').onclick = async () => {
   if (!S.buyItems.length) return toast('Adicione pelo menos um produto.', true);

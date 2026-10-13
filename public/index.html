@@ -209,7 +209,7 @@
             <label class="field"><span class="lbl">Quantidade</span><input type="number" id="bQty" min="1" value="1"></label>
             <label class="field"><span class="lbl">Custo unitário</span><input type="number" id="bCost" min="0" step="0.01"></label>
             <label class="field"><span class="lbl">Lote</span><input type="text" id="bLote" maxlength="60"></label>
-            <label class="field"><span class="lbl">Validade</span><input type="month" id="bVal" placeholder="mm/aaaa"></label>
+            <label class="field"><span class="lbl">Validade</span><input type="text" id="bVal" inputmode="numeric" maxlength="7" placeholder="08/2029" autocomplete="off"></label>
             <button class="btn" id="bAdd">Adicionar</button>
           </div>
           <div class="tablewrap"><table><thead><tr><th>Produto</th><th>Lote</th><th>Validade</th><th class="r">Qtd</th><th class="r">Custo un.</th><th class="r" id="bCostFH" hidden>Custo c/ frete</th><th class="r">Subtotal</th><th></th></tr></thead><tbody id="bItems"></tbody></table></div>
