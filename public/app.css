@@ -192,3 +192,14 @@ tr.cancel td{color:var(--muted);text-decoration:line-through}
 .perm-grid input{margin-top:3px;width:16px;height:16px;flex:none;accent-color:var(--accent)}
 .perm-grid small{display:block;color:var(--muted);font-size:12px}
 .perm-tags{display:flex;flex-wrap:wrap;gap:4px;max-width:320px}
+
+/* automatic rate */
+.fx-auto{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:12px 0}
+.fx-auto>div{background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:4px}
+.fx-auto b{font-size:20px}
+.fx-auto>div:last-child{border-color:var(--accent)}
+.check{display:flex;gap:8px;align-items:center;cursor:pointer;padding-bottom:10px}
+.check input{width:16px;height:16px;accent-color:var(--accent)}
+.fx-manual{margin-top:14px;border-top:1px solid var(--line);padding-top:10px}
+.fx-manual summary{cursor:pointer;font-weight:600}
+@media (max-width:600px){.fx-auto{grid-template-columns:1fr}}

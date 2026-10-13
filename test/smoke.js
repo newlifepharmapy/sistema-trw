@@ -66,6 +66,13 @@ function client() {
   assert(ad.me.loja === 'ambas' && ad.sales.some(x => x.loja === 'SP'), 'com as duas lojas ela vê as vendas de São Paulo');
   const admId = (await adm('/api/me')).data.user.id;
   assert((await adm(`/api/users/${admId}`, 'PUT', { nome: 'Administrador', login: 'admin', papel: 'supervisor', permissoes: ['dash'] })).status === 400, 'supervisor não tira de si a gestão de usuários');
+  if (process.env.BINANCE_MOCK) { // server started with BINANCE_URL pointing to a mock that answers {"price":"5.3210"}
+    const r = await adm('/api/cambio/config', 'POST', { spread: 0.05, auto: true });
+    const st = (await adm('/api/data')).data.settings;
+    assert(r.status === 200 && st.cotacao === 5.371 && st.binance === 5.321 && st.auto === true, 'cotação automática = USDT Binance 5,321 + spread 0,05');
+    await adm('/api/cotacao', 'POST', { valor: 5.9 });
+    assert((await adm('/api/data')).data.settings.auto === false, 'cotação manual desliga o automático');
+  }
   const form = await fetch(BASE + '/api/cotacao', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'valor=1' });
   assert(form.status === 415, 'bloqueia envio de formulário de outro site');
   console.log('\nTodos os testes passaram.');

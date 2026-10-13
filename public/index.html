@@ -224,12 +224,27 @@
       <section class="pane" id="pane-fx" hidden>
         <div class="grid2">
           <div class="card">
-            <h2>Atualizar cotação do dólar</h2>
-            <p class="hint">Ao salvar, todos os valores do sistema são recalculados em todos os computadores.</p>
-            <div class="row end">
-              <label class="field w200"><span class="lbl">US$ 1 = R$</span><input type="number" id="fxIn" step="0.0001" min="0" class="num bigin"></label>
-              <button class="btn primary" id="fxSave">Salvar cotação</button>
+            <h2>Cotação automática · Binance USDT</h2>
+            <p class="hint">A cotação usada no sistema é o preço do USDT em reais na Binance mais o spread. Atualiza sozinha a cada 5 minutos.</p>
+            <div class="fx-auto">
+              <div><span class="lbl">USDT na Binance</span><b class="num" id="fxBin">—</b></div>
+              <div><span class="lbl">+ Spread</span><b class="num" id="fxSpreadV">—</b></div>
+              <div><span class="lbl">= Cotação do sistema</span><b class="num" id="fxRes">—</b></div>
             </div>
+            <div class="row end">
+              <label class="field w200"><span class="lbl">Spread (R$)</span><input type="number" id="fxSpread" step="0.01" class="num" placeholder="0,05"></label>
+              <label class="check"><input type="checkbox" id="fxAuto"> Atualizar automaticamente</label>
+              <button class="btn primary" id="fxCfgSave">Salvar</button>
+            </div>
+            <div id="fxAutoNow" class="hint"></div>
+            <details class="fx-manual">
+              <summary>Definir cotação manualmente</summary>
+              <p class="hint">Salvar uma cotação manual desliga a atualização automática até você ligá-la de novo.</p>
+              <div class="row end">
+                <label class="field w200"><span class="lbl">US$ 1 = R$</span><input type="number" id="fxIn" step="0.0001" min="0" class="num"></label>
+                <button class="btn" id="fxSave">Salvar cotação manual</button>
+              </div>
+            </details>
             <div id="fxNow" class="hint"></div>
           </div>
           <div class="card"><h2>Variação recente</h2><div id="fxChart" class="chart"></div></div>

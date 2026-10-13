@@ -37,6 +37,12 @@ create table if not exists settings (
   atualizado_por text
 );
 
+alter table settings add column if not exists spread numeric not null default 0;
+alter table settings add column if not exists auto boolean not null default true;
+alter table settings add column if not exists binance numeric;
+alter table settings add column if not exists binance_em bigint;
+alter table settings add column if not exists binance_erro text;
+
 create table if not exists rate_history (
   dia date primary key,
   valor numeric not null,

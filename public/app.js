@@ -507,9 +507,24 @@ $('#fxSave').onclick = async () => {
   const v = +$('#fxIn').value; if (!(v > 0)) return toast('Informe a cotação, por exemplo 5,42.', true);
   await act(() => api('/cotacao', 'POST', { valor: v }), 'Cotação atualizada. Todos os valores foram recalculados.');
 };
+$('#fxCfgSave').onclick = async () => {
+  const spread = +String($('#fxSpread').value).replace(',', '.') || 0, auto = $('#fxAuto').checked;
+  const r = await act(() => api('/cambio/config', 'POST', { spread, auto }));
+  if (!r) return;
+  if (auto && r.erro) toast('Spread salvo, mas a Binance não respondeu agora. O sistema tenta de novo a cada 5 minutos.', true);
+  else toast(auto ? 'Cotação atualizada pela Binance.' : 'Spread salvo. Atualização automática desligada.');
+};
+const fR = v => v == null ? '—' : 'R$ ' + (+v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
 function renderFx() {
+  const st = S.settings || {};
   if (document.activeElement !== $('#fxIn')) $('#fxIn').value = S.rate || '';
-  $('#fxNow').textContent = S.settings ? `Atual: R$ ${S.rate} por dólar, definida por ${S.settings.atualizadoPor} em ${new Date(+S.settings.atualizadoEm).toLocaleString('pt-BR')}.` : 'Nenhuma cotação definida ainda.';
+  if (document.activeElement !== $('#fxSpread')) $('#fxSpread').value = st.spread ?? '';
+  $('#fxAuto').checked = st.auto !== false;
+  $('#fxBin').textContent = fR(st.binance); $('#fxSpreadV').textContent = fR(st.spread || 0); $('#fxRes').textContent = fR(S.rate);
+  $('#fxAutoNow').innerHTML = st.auto === false ? '<span class="pill warn">automático desligado</span> a cotação atual foi definida manualmente.'
+    : st.binanceErro ? `<span class="pill bad">Binance sem resposta</span> tentando de novo a cada 5 minutos. ${st.binanceEm ? 'Último preço lido às ' + fTime(st.binanceEm) + '.' : ''}`
+    : st.binanceEm ? `<span class="pill">automático</span> último preço lido às ${fTime(st.binanceEm)}.` : '';
+  $('#fxNow').textContent = S.settings ? `Atual: ${fR(S.rate)} por dólar, definida por ${S.settings.atualizadoPor} em ${new Date(+S.settings.atualizadoEm).toLocaleString('pt-BR')}.` : 'Nenhuma cotação definida ainda.';
   const h = S.historico.slice().sort((a, b) => a.d < b.d ? -1 : 1);
   $('#fxList').innerHTML = h.length ? `<table><thead><tr><th>Data</th><th class="r">US$ 1 em R$</th><th class="r">Variação</th><th>Definida por</th></tr></thead><tbody>${h.slice().reverse().slice(0, 60).map((x, i, a) => { const prev = a[i + 1], d = prev ? (x.v - prev.v) / prev.v * 100 : null; return `<tr><td class="num">${fDate(x.d)}</td><td class="r num">${x.v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}</td><td class="r num" style="color:${d > 0 ? 'var(--bad)' : d < 0 ? 'var(--good)' : 'var(--muted)'}">${d == null ? '—' : (d > 0 ? '+' : '') + d.toFixed(2) + '%'}</td><td>${esc(x.por)}</td></tr>`; }).join('')}</tbody></table>` : '<div class="empty">O histórico começa com a primeira cotação salva.</div>';
   const pts = h.slice(-60);

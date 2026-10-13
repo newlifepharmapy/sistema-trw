@@ -186,7 +186,7 @@ app.get('/api/data', auth, h(async (req, res) => {
   const out = {
     v: version,
     me: pubUser(u),
-    settings: st ? { cotacao: st.cotacao, atualizadoEm: st.atualizado_em, atualizadoPor: st.atualizado_por } : null,
+    settings: st ? { cotacao: st.cotacao, atualizadoEm: st.atualizado_em, atualizadoPor: st.atualizado_por, spread: st.spread, auto: st.auto, binance: st.binance, binanceEm: st.binance_em, binanceErro: st.binance_erro } : null,
     historico: hist.rows.map(r => ({ d: r.dia, v: r.valor, por: r.por, ts: r.ts })),
     products: products.rows.map(mapProduct),
     sales: sales.rows.map(mapSale),
@@ -205,17 +205,69 @@ app.get('/api/data', auth, h(async (req, res) => {
 }));
 
 // ---------- câmbio ----------
-app.post('/api/cotacao', auth, need('cambio'), h(async (req, res) => {
-  const v = num(req.body.valor);
-  if (!(v > 0 && v < 1000)) bad('Informe uma cotação válida, por exemplo 5,42.');
+async function saveRate(v, por, extra = '') {
   const now = Date.now(), dia = todayStr();
   await tx(async c => {
     await c.query(`insert into settings (id, cotacao, atualizado_em, atualizado_por) values (1,$1,$2,$3)
-      on conflict (id) do update set cotacao=excluded.cotacao, atualizado_em=excluded.atualizado_em, atualizado_por=excluded.atualizado_por`, [v, now, req.user.nome]);
+      on conflict (id) do update set cotacao=excluded.cotacao, atualizado_em=excluded.atualizado_em, atualizado_por=excluded.atualizado_por${extra}`, [v, now, por]);
     await c.query(`insert into rate_history (dia, valor, por, ts) values ($1,$2,$3,$4)
-      on conflict (dia) do update set valor=excluded.valor, por=excluded.por, ts=excluded.ts`, [dia, v, req.user.nome, now]);
+      on conflict (dia) do update set valor=excluded.valor, por=excluded.por, ts=excluded.ts`, [dia, v, por, now]);
   });
-  bump(); res.json({ ok: true });
+  bump();
+}
+// manual rate: switches the automatic Binance update off until it is turned back on
+app.post('/api/cotacao', auth, need('cambio'), h(async (req, res) => {
+  const v = num(req.body.valor);
+  if (!(v > 0 && v < 1000)) bad('Informe uma cotação válida, por exemplo 5,42.');
+  await saveRate(r4(v), req.user.nome, ', auto=false');
+  res.json({ ok: true });
+}));
+
+// automatic rate: USDT/BRL price on Binance plus the spread, every 5 minutes.
+// Binance refuses api.binance.com from some server regions, so the public market-data mirror is tried too.
+const BINANCE_URLS = process.env.BINANCE_URL ? [process.env.BINANCE_URL] : ['https://data-api.binance.vision/api/v3/ticker/price?symbol=USDTBRL', 'https://api.binance.com/api/v3/ticker/price?symbol=USDTBRL', 'https://api1.binance.com/api/v3/ticker/price?symbol=USDTBRL'];
+async function binancePrice() {
+  let last;
+  for (const u of BINANCE_URLS) {
+    try {
+      const r = await fetch(u, { signal: AbortSignal.timeout(8000) });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const p = parseFloat((await r.json()).price);
+      if (p > 0 && p < 1000) return p;
+      throw new Error('preço inválido');
+    } catch (e) { last = `${new URL(u).host}: ${e.message}`; }
+  }
+  throw new Error(last);
+}
+const r4 = n => Math.round((+n || 0) * 10000) / 10000;
+let fxBusy = false;
+async function autoRate(force) {
+  if (fxBusy) return; fxBusy = true;
+  try {
+    await pool.query('insert into settings (id) values (1) on conflict (id) do nothing');
+    const { rows } = await pool.query('select * from settings where id=1');
+    const st = rows[0];
+    if (!st.auto && !force) return;
+    let p;
+    try { p = await binancePrice(); }
+    catch (e) {
+      console.error('Cotação Binance indisponível:', e.message);
+      await pool.query('update settings set binance_erro=$1 where id=1', [e.message.slice(0, 200)]); bump();
+      return;
+    }
+    await pool.query('update settings set binance=$1, binance_em=$2, binance_erro=null where id=1', [p, Date.now()]);
+    await saveRate(r4(p + (+st.spread || 0)), 'Binance USDT');
+  } finally { fxBusy = false; }
+}
+app.post('/api/cambio/config', auth, need('cambio'), h(async (req, res) => {
+  const spread = r4(num(req.body.spread));
+  if (Math.abs(spread) > 5) bad('Spread muito alto. Informe em reais, por exemplo 0,05.');
+  await pool.query('insert into settings (id) values (1) on conflict (id) do nothing');
+  await pool.query('update settings set spread=$1, auto=$2 where id=1', [spread, req.body.auto !== false]);
+  bump();
+  if (req.body.auto !== false) await autoRate(true);
+  const { rows } = await pool.query('select binance_erro from settings where id=1');
+  res.json({ ok: true, erro: rows[0].binance_erro });
 }));
 
 // ---------- produtos ----------
@@ -445,4 +497,5 @@ async function seedAdmin() {
 
 migrate().then(seedAdmin).then(sessionSecret).then(initSession).then(() => {
   app.listen(PORT, () => console.log(`Sistema TRW rodando na porta ${PORT}`));
+  if (process.env.COTACAO_AUTO !== 'off') { autoRate(); setInterval(() => autoRate().catch(e => console.error(e)), 5 * 60 * 1000); }
 }).catch(e => { console.error('Falha ao iniciar:', e); process.exit(1); });

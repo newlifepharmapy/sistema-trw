@@ -19,6 +19,8 @@ Variáveis opcionais: `SESSION_SECRET` (sem ela, um segredo aleatório é gerado
 
 Opcional: `TZ_LOJA` define o fuso usado para a data das vendas (padrão `America/Asuncion`).
 
+Cotação: o sistema lê o preço do USDT em reais na Binance a cada 5 minutos e soma o spread definido na aba **Câmbio**. `COTACAO_AUTO=off` desliga essa leitura no servidor.
+
 ## Rodar localmente
 
 ```bash
