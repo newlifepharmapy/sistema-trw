@@ -69,6 +69,7 @@
       <div class="nav-g"><span>Administração</span>
         <button data-tab="fx"><i class="ic">$</i>Câmbio</button>
         <button data-tab="users"><i class="ic">☺</i>Usuários</button>
+        <button data-tab="nota"><i class="ic">⎙</i>Impressão da nota</button>
       </div>
     </nav>
     <div class="side-foot">
@@ -252,6 +253,25 @@
         <div class="card"><h2>Histórico de cotações</h2><div class="tablewrap" id="fxList"></div></div>
       </section>
 
+      <!-- NOTA -->
+      <section class="pane" id="pane-nota" hidden>
+        <div class="card">
+          <h2>Cabeçalho e rodapé da nota</h2>
+          <p class="hint">Estes dados saem impressos no topo e no fim de cada nota de venda. Cada loja tem os seus.</p>
+          <div class="grid2" id="notaForm"></div>
+          <div class="row actions"><button class="btn primary" id="notaSave">Salvar</button><button class="btn" id="notaTest">Imprimir nota de teste</button></div>
+        </div>
+        <div class="card">
+          <h2>Como configurar a Epson 890II</h2>
+          <ol class="steps">
+            <li>No Windows, instale o driver da impressora (Epson FX-890II / LX-890II) e deixe o papel contínuo de 80 colunas.</li>
+            <li>Na janela de impressão do navegador, escolha a Epson, em <b>Mais configurações</b> deixe <b>Margens: Nenhuma</b>, <b>Escala: Padrão (100%)</b> e desmarque <b>Cabeçalhos e rodapés</b>.</li>
+            <li>No Chrome ou Edge, o navegador lembra essas opções depois da primeira vez.</li>
+            <li>Se a nota sair cortada à direita, em <b>Preferências da impressora</b> escolha o papel <b>Carta</b> ou <b>Fanfold 9 1/2 x 11 pol.</b></li>
+          </ol>
+        </div>
+      </section>
+
       <!-- USERS -->
       <section class="pane" id="pane-users" hidden>
         <div class="card">
@@ -285,7 +305,39 @@
   </form>
 </div>
 
+<!-- after a sale or purchase: print or send -->
+<div class="modal" id="doneModal" hidden>
+  <div class="card modal-card done-card">
+    <div class="done-ok">✓</div>
+    <h2 id="doneTitle">Venda registrada</h2>
+    <div class="done-total num" id="doneTotal"></div>
+    <div class="done-btns">
+      <button class="btn primary" id="donePrint">Imprimir nota</button>
+      <button class="btn wa" id="doneWa">Enviar pelo WhatsApp</button>
+    </div>
+    <button class="btn ghost" id="doneClose">Não, obrigado</button>
+    <div class="hint">Atalhos: <span class="kbd">1</span> imprime · <span class="kbd">2</span> WhatsApp · <span class="kbd">Esc</span> fecha</div>
+  </div>
+</div>
+
+<!-- send note by WhatsApp -->
+<div class="modal" id="waModal" hidden>
+  <div class="card modal-card wa-card">
+    <h2>Enviar nota pelo WhatsApp</h2>
+    <img id="waImg" alt="Imagem da nota">
+    <label class="field"><span class="lbl">WhatsApp do cliente (com código do país)</span><input type="tel" id="waPhone" placeholder="ex.: 595981123456 ou 5511987654321"></label>
+    <div class="row actions wrap">
+      <button class="btn primary" id="waGo">Copiar imagem e abrir WhatsApp</button>
+      <button class="btn" id="waShare" hidden>Compartilhar…</button>
+      <button class="btn" id="waDl">Baixar imagem</button>
+      <button class="btn ghost" id="waClose">Fechar</button>
+    </div>
+    <p class="hint">O WhatsApp abre na conversa do cliente com a imagem já copiada. Clique na caixa de mensagem, aperte <span class="kbd">Ctrl</span>+<span class="kbd">V</span> e envie.</p>
+  </div>
+</div>
+
 <div id="toastHost"></div>
+<div id="printArea" aria-hidden="true"></div>
 <script src="/app.js"></script>
 </body>
 </html>

@@ -5,7 +5,7 @@ const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const LOJAS = { PY: { nome: 'Paraguay', cur: 'USD' }, SP: { nome: 'São Paulo', cur: 'BRL' } };
 const PAYS = ['PIX / Transf.', 'USDT', 'EFETIVO'];
-const TITLES = { dash: 'Dashboard', PY: 'Vendas Paraguay', SP: 'Vendas São Paulo', hist: 'Histórico de vendas', stock: 'Estoque total', prod: 'Produtos', buy: 'Compras e entradas', imp: 'Importações', fx: 'Câmbio', users: 'Usuários' };
+const TITLES = { dash: 'Dashboard', PY: 'Vendas Paraguay', SP: 'Vendas São Paulo', hist: 'Histórico de vendas', stock: 'Estoque total', prod: 'Produtos', buy: 'Compras e entradas', imp: 'Importações', fx: 'Câmbio', users: 'Usuários', nota: 'Impressão da nota' };
 const ls = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
 
 const S = { v: null, rate: null, settings: null, historico: [], users: [], products: [], sales: [], purchases: [], imports: [], me: null, tab: null,
@@ -56,7 +56,7 @@ const PERMS = [
 const PRESET = { supervisor: PERMS.map(p => p[0]), vendedor: ['vendas_PY'] };
 const can = p => !!(S.me && (S.me.permissoes || []).includes(p));
 const canStore = l => can('vendas_' + l);
-const TAB_PERM = { dash: 'dash', PY: 'vendas_PY', SP: 'vendas_SP', buy: 'compras', imp: 'importacoes', fx: 'cambio', users: 'usuarios' };
+const TAB_PERM = { dash: 'dash', PY: 'vendas_PY', SP: 'vendas_SP', buy: 'compras', imp: 'importacoes', fx: 'cambio', users: 'usuarios', nota: 'usuarios' };
 const stockOf = (p, l) => +(p.estoque?.[l] ?? 0);
 const daysTo = d => d ? Math.round((new Date(d + 'T12:00:00') - new Date(today() + 'T12:00:00')) / 864e5) : null;
 function valPill(d) {
@@ -151,7 +151,7 @@ function refresh() {
   $('#rateWhen').textContent = at ? (isToday ? 'hoje ' + fTime(at) : 'em ' + new Date(+at).toLocaleDateString('pt-BR')) : '';
   $('#rateWhen').className = 'when' + (at && !isToday ? ' pill warn' : '');
   $('#noRate').hidden = !!S.rate;
-  ({ dash: renderDash, PY: () => renderSaleData('PY'), SP: () => renderSaleData('SP'), hist: renderHist, buy: renderBuy, imp: renderImp, prod: renderProd, stock: renderStock, fx: renderFx, users: renderUsers })[S.tab]?.();
+  ({ dash: renderDash, PY: () => renderSaleData('PY'), SP: () => renderSaleData('SP'), hist: renderHist, buy: renderBuy, imp: renderImp, prod: renderProd, stock: renderStock, fx: renderFx, users: renderUsers, nota: renderNota })[S.tab]?.();
 }
 
 /* ---------- sale panes ---------- */
@@ -250,13 +250,13 @@ async function finishSale(l) {
   S.saving = true; renderTotals(l);
   const r = await act(() => api('/sales', 'POST', { loja: l, moeda: c.cur, pagamento: c.pay, cliente: $('#cli-' + l).value, itens: items.map(i => ({ pid: i.pid, nome: i.nome, qtd: i.qtd, preco: i.preco })) }));
   S.saving = false;
-  if (r) { c.items = []; $('#cli-' + l).value = ''; renderCart(l); $('#q-' + l).focus(); toast('Venda registrada · ' + fm(r.sale.total, r.sale.moeda)); }
+  if (r) { c.items = []; $('#cli-' + l).value = ''; renderCart(l); $('#q-' + l).focus(); askDoc(r.sale, () => $('#q-' + l).focus()); }
   renderTotals(l);
 }
 function saleRow(s, opts = {}) {
   const itens = (s.itens || []).map(i => `${i.qtd}× ${esc(i.nome)}`).join(', ');
   const o = s.moeda === 'USD' ? 'BRL' : 'USD';
-  const actn = can('cancelar') && !s.cancelada ? `<button class="btn small danger" data-cancel="${s.id}">Cancelar</button>` : (s.cancelada ? '<span class="pill bad">cancelada</span>' : '');
+  const actn = `<span style="white-space:nowrap"><button class="btn small" data-print="${s.id}" title="Imprimir nota">Imprimir</button> <button class="btn small" data-wa="${s.id}" title="Enviar nota pelo WhatsApp">WhatsApp</button>${can('cancelar') && !s.cancelada ? ` <button class="btn small danger" data-cancel="${s.id}">Cancelar</button>` : (s.cancelada ? ' <span class="pill bad">cancelada</span>' : '')}</span>`;
   return `<tr class="${s.cancelada ? 'cancel' : ''}">${opts.date ? `<td class="num">${fDate(s.data)}</td>` : ''}<td class="num">${fTime(s.ts)}</td>${opts.loja ? `<td><span class="pill ${s.loja.toLowerCase()}">${s.loja}</span></td>` : ''}<td style="max-width:340px">${itens}${s.cliente ? `<div class="hint">${esc(s.cliente)}</div>` : ''}</td><td>${esc(s.vendedorNome)}</td><td>${esc(s.pagamento)}</td><td class="r num"><b>${fm(s.total, s.moeda)}</b><div class="hint">${fm(saleIn(s, o), o)}</div>${+s.cotacao ? `<div class="hint">câmbio ${fRate(s.cotacao)}</div>` : ''}</td><td class="r">${actn}</td></tr>`;
 }
 const saleHead = (opts = {}) => `<thead><tr>${opts.date ? '<th>Data</th>' : ''}<th>Hora</th>${opts.loja ? '<th>Loja</th>' : ''}<th>Itens</th><th>Vendedor</th><th>Pagamento</th><th class="r">Valor</th><th></th></tr></thead>`;
@@ -379,13 +379,13 @@ $('#bSave').onclick = async () => {
   $('#bSave').disabled = true;
   const ok = await act(() => api('/purchases', 'POST', { data: $('#bDate').value, fornecedor: $('#bSup').value, loja: $('#bLoja').value, moeda: $('#bCur').value, itens: S.buyItems, fretePct: fretePct(), freteiro: $('#bFreteiro').value }), 'Entrada registrada e estoque atualizado.');
   $('#bSave').disabled = false;
-  if (ok) { S.buyItems = []; $('#bSup').value = ''; $('#bFreteiro').value = ''; $('#bFrete').value = ''; renderBuyItems(); }
+  if (ok) { S.buyItems = []; $('#bSup').value = ''; $('#bFreteiro').value = ''; $('#bFrete').value = ''; renderBuyItems(); if (ok.purchase) askDoc(purchaseDoc(ok.purchase)); }
 };
 function renderBuy() {
   const sel = $('#bProd'), v = sel.value; sel.innerHTML = productOptions(); sel.value = v;
   renderBuyItems();
   const L = S.purchases.slice(0, 200);
-  $('#buyList').innerHTML = L.length ? `<table><thead><tr><th>Data</th><th>Fornecedor</th><th>Destino</th><th>Itens</th><th>Frete</th><th>Registrado por</th><th class="r">Total</th></tr></thead><tbody>${L.map(p => { const o = p.moeda === 'USD' ? 'BRL' : 'USD'; return `<tr><td class="num">${fDate(p.data)}</td><td>${esc(p.fornecedor || '—')}</td><td><span class="pill ${p.loja.toLowerCase()}">${p.loja}</span></td><td>${(p.itens || []).map(i => `${i.qtd}× ${esc(i.nome)}`).join(', ')}</td><td>${p.freteiro || +p.fretePct ? `${esc(p.freteiro || '—')}<div class="hint num">${+p.fretePct || 0}% · ${fm(+p.freteValor || 0, p.moeda)}</div>` : '—'}</td><td>${esc(p.criadoPor)}</td><td class="r num"><b>${fm(p.total, p.moeda)}</b><div class="hint">${fm(conv(p.total, p.moeda, o), o)}</div></td></tr>`; }).join('')}</tbody></table>` : '<div class="empty">Nenhuma entrada registrada.</div>';
+  $('#buyList').innerHTML = L.length ? `<table><thead><tr><th>Data</th><th>Fornecedor</th><th>Destino</th><th>Itens</th><th>Frete</th><th>Registrado por</th><th class="r">Total</th><th></th></tr></thead><tbody>${L.map(p => { const o = p.moeda === 'USD' ? 'BRL' : 'USD'; return `<tr><td class="num">${fDate(p.data)}</td><td>${esc(p.fornecedor || '—')}</td><td><span class="pill ${p.loja.toLowerCase()}">${p.loja}</span></td><td>${(p.itens || []).map(i => `${i.qtd}× ${esc(i.nome)}`).join(', ')}</td><td>${p.freteiro || +p.fretePct ? `${esc(p.freteiro || '—')}<div class="hint num">${+p.fretePct || 0}% · ${fm(+p.freteValor || 0, p.moeda)}</div>` : '—'}</td><td>${esc(p.criadoPor)}</td><td class="r num"><b>${fm(p.total, p.moeda)}</b><div class="hint">${fm(conv(p.total, p.moeda, o), o)}</div></td><td class="r" style="white-space:nowrap"><button class="btn small" data-printp="${p.id}">Imprimir</button> <button class="btn small" data-wap="${p.id}">WhatsApp</button></td></tr>`; }).join('')}</tbody></table>` : '<div class="empty">Nenhuma entrada registrada.</div>';
 }
 
 /* ---------- imports ---------- */
@@ -536,6 +536,185 @@ function renderFx() {
   const last = pts[pts.length - 1];
   $('#fxChart').innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Variação do dólar">${g}<path d="${line} L${X(pts.length - 1)},${H - B} L${L},${H - B} Z" fill="var(--accent)" opacity=".1"/><path d="${line}" fill="none" stroke="var(--accent)" stroke-width="2"/><circle cx="${X(pts.length - 1)}" cy="${Y(last.v)}" r="4" fill="var(--accent)"/><text x="${L}" y="${H - 6}">${fDate(pts[0].d)}</text><text x="${W - R}" y="${H - 6}" text-anchor="end">${fDate(last.d)}</text></svg>`;
 }
+
+/* ---------- nota (dot-matrix, 80 columns) ---------- */
+const NW = 78;
+const NOTA_F = [['empresa', 'Nome da empresa'], ['documento', 'RUC / CNPJ'], ['endereco', 'Endereço'], ['telefone', 'Telefone'], ['rodape', 'Mensagem no rodapé']];
+// plain ASCII prints the same on any dot-matrix code page
+const ascii = t => String(t ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\x20-\x7e]/g, '');
+const padR = (t, n) => { t = ascii(t); return t.length > n ? t.slice(0, n) : t + ' '.repeat(n - t.length); };
+const padL = (t, n) => { t = ascii(t); return t.length > n ? t.slice(0, n) : ' '.repeat(n - t.length) + t; };
+const center = t => { t = ascii(t).slice(0, NW); return ' '.repeat(Math.floor((NW - t.length) / 2)) + t; };
+const wrap = (t, n) => { const out = []; let line = ''; ascii(t).split(/\s+/).forEach(w => { if ((line + ' ' + w).trim().length > n) { if (line) out.push(line); line = w.slice(0, n); } else line = (line + ' ' + w).trim(); }); if (line) out.push(line); return out; };
+const nNum = (v, d = 2) => (+v || 0).toLocaleString('pt-BR', { minimumFractionDigits: d, maximumFractionDigits: d });
+const nMoney = (v, cur) => (cur === 'BRL' ? 'R$ ' : 'US$ ') + nNum(v);
+function notaText(s) {
+  const cfg = (S.settings?.nota || {})[s.loja] || {}, L = [], sep = '-'.repeat(NW), dbl = '='.repeat(NW);
+  const o = s.moeda === 'USD' ? 'BRL' : 'USD';
+  if (cfg.empresa) L.push(center(cfg.empresa.toUpperCase()));
+  if (cfg.documento) L.push(center(cfg.documento));
+  if (cfg.endereco) wrap(cfg.endereco, NW).forEach(x => L.push(center(x)));
+  if (cfg.telefone) L.push(center('Tel.: ' + cfg.telefone));
+  L.push(dbl);
+  const buy = s.kind === 'compra';
+  L.push(padR((buy ? 'NOTA DE ENTRADA No ' : 'NOTA DE VENDA No ') + String(s.id).padStart(6, '0'), 40) + padL(fDate(s.data) + ' ' + fTime(s.ts), NW - 40));
+  L.push(padR((buy ? 'Destino: ' : 'Loja: ') + LOJAS[s.loja].nome, 40) + padL((buy ? 'Registrado por: ' : 'Vendedor: ') + s.vendedorNome, NW - 40));
+  if (s.cliente) L.push(padR((buy ? 'Fornecedor: ' : 'Cliente: ') + s.cliente, NW));
+  if (s.cancelada) L.push(center('*** VENDA CANCELADA ***'));
+  L.push(sep);
+  // Qtd(6) Descricao(32) Lote(10) Venc(8) Unit(10) Total(12)
+  L.push(padL('Qtd', 6) + ' ' + padR('Descricao', 31) + ' ' + padR('Lote', 9) + ' ' + padR('Venc.', 7) + ' ' + padL('Unit.', 9) + ' ' + padL('Total', 10));
+  L.push(sep);
+  (s.itens || []).forEach(i => {
+    const venc = i.validade ? i.validade.slice(5, 7) + '/' + i.validade.slice(2, 4) : '';
+    const desc = wrap(i.nome, 31);
+    L.push(padL(nNum(i.qtd, i.qtd % 1 ? 2 : 0), 6) + ' ' + padR(desc[0] || '', 31) + ' ' + padR(i.lote || '', 9) + ' ' + padR(venc, 7) + ' ' + padL(nNum(i.preco), 9) + ' ' + padL(nNum(i.qtd * i.preco), 10));
+    desc.slice(1).forEach(x => L.push(' '.repeat(7) + x));
+  });
+  L.push(sep);
+  const items = (s.itens || []).reduce((a, i) => a + i.qtd, 0);
+  if (s.frete) { L.push(padL('Subtotal ' + nMoney(s.subtotal, s.moeda), NW)); L.push(padR(s.frete.freteiro ? 'Freteiro: ' + s.frete.freteiro : '', 40) + padL(`Frete ${nNum(s.frete.pct, 2).replace(/,00$/, '')}% ` + nMoney(s.frete.valor, s.moeda), NW - 40)); }
+  L.push(padR(`Itens: ${nNum(items, items % 1 ? 2 : 0)}`, 30) + padL('TOTAL ' + nMoney(s.total, s.moeda), NW - 30));
+  L.push(padR(s.pagamento ? 'Pagamento: ' + s.pagamento : '', 40) + padL(saleIn(s, o) == null ? '' : 'Equivale a ' + nMoney(saleIn(s, o), o), NW - 40));
+  if (+s.cotacao) L.push(padL('Cambio do dia: US$ 1 = R$ ' + nNum(s.cotacao, 4).replace(/0{1,2}$/, ''), NW));
+  L.push(dbl);
+  if (!buy) (cfg.rodape ? wrap(cfg.rodape, NW) : ['Obrigado pela preferencia!']).forEach(x => L.push(center(x)));
+  L.push(center(buy ? 'Documento interno de entrada de estoque' : 'Documento sem valor fiscal'));
+  return L.join('\n');
+}
+function printNota(s) {
+  if (!s) return;
+  const pre = document.createElement('pre'); pre.textContent = notaText(s);
+  $('#printArea').replaceChildren(pre);
+  setTimeout(() => window.print(), 50);
+}
+document.addEventListener('click', e => { const b = e.target.closest('[data-print]'); if (b) printNota(S.sales.find(x => x.id === +b.dataset.print)); });
+function renderNota() {
+  if ($('#notaForm').contains(document.activeElement)) return;
+  const n = S.settings?.nota || {};
+  $('#notaForm').innerHTML = ['PY', 'SP'].map(l => `<div class="nota-loja"><h3><span class="pill ${l.toLowerCase()}">${l}</span> ${LOJAS[l].nome}</h3>${NOTA_F.map(([k, t]) => `<label class="field"><span class="lbl">${t}</span>${k === 'rodape' ? `<textarea data-nl="${l}" data-nk="${k}">${esc(n[l]?.[k] || '')}</textarea>` : `<input type="text" data-nl="${l}" data-nk="${k}" value="${esc(n[l]?.[k] || '')}">`}</label>`).join('')}</div>`).join('');
+}
+$('#notaSave').onclick = async () => {
+  const body = { PY: {}, SP: {} };
+  $$('#notaForm [data-nl]').forEach(i => { body[i.dataset.nl][i.dataset.nk] = i.value; });
+  if (await act(() => api('/nota/config', 'POST', body), 'Dados da nota salvos.')) { document.activeElement?.blur(); renderNota(); }
+};
+$('#notaTest').onclick = () => printNota({ id: 123, loja: 'PY', data: today(), ts: Date.now(), moeda: 'USD', total: 57.5, cotacao: S.rate || 5.4, pagamento: 'EFETIVO', cliente: 'Cliente de teste', vendedorNome: S.me.nome,
+  itens: [{ nome: 'Dipirona Sodica 500mg c/ 10 comprimidos', lote: 'L2301', validade: '2027-05-31', qtd: 3, preco: 4.5 }, { nome: 'Amoxicilina 500mg caixa com 21 capsulas', lote: 'AMX99', validade: '2026-12-31', qtd: 2, preco: 22 }] });
+
+/* ---------- nota as image for WhatsApp ---------- */
+const IW = 46;
+function notaImgLines(s) {
+  const cfg = (S.settings?.nota || {})[s.loja] || {}, o = s.moeda === 'USD' ? 'BRL' : 'USD', L = [];
+  const c = t => { t = String(t).slice(0, IW); return ' '.repeat(Math.floor((IW - t.length) / 2)) + t; };
+  const lr = (a, b) => { a = String(a); b = String(b); return a.length + b.length + 1 > IW ? [a, ' '.repeat(Math.max(IW - b.length, 0)) + b] : [a + ' '.repeat(IW - a.length - b.length) + b]; };
+  const w = (t, n = IW) => { const out = []; let line = ''; String(t).split(/\s+/).forEach(x => { if ((line + ' ' + x).trim().length > n) { if (line) out.push(line); line = x.slice(0, n); } else line = (line + ' ' + x).trim(); }); if (line) out.push(line); return out; };
+  if (cfg.empresa) L.push({ t: c(cfg.empresa.toUpperCase()), b: 1, big: 1 });
+  [cfg.documento, ...(cfg.endereco ? w(cfg.endereco) : []), cfg.telefone && 'Tel.: ' + cfg.telefone].filter(Boolean).forEach(x => L.push({ t: c(x), m: 1 }));
+  L.push({ hr: 2 });
+  const buy = s.kind === 'compra';
+  L.push(...lr((buy ? 'NOTA DE ENTRADA Nº ' : 'NOTA DE VENDA Nº ') + String(s.id).padStart(6, '0'), fDate(s.data) + ' ' + fTime(s.ts)).map(t => ({ t, b: 1 })));
+  L.push({ t: (buy ? 'Destino: ' : 'Loja: ') + LOJAS[s.loja].nome }, { t: (buy ? 'Registrado por: ' : 'Vendedor: ') + s.vendedorNome });
+  if (s.cliente) L.push({ t: (buy ? 'Fornecedor: ' : 'Cliente: ') + s.cliente });
+  if (s.cancelada) L.push({ t: c('*** VENDA CANCELADA ***'), b: 1, red: 1 });
+  L.push({ hr: 1 });
+  (s.itens || []).forEach(i => {
+    w(i.nome).forEach((x, k) => L.push({ t: x, b: !k }));
+    const det = [i.lote && 'Lote ' + i.lote, i.validade && 'Venc. ' + i.validade.slice(5, 7) + '/' + i.validade.slice(2, 4)].filter(Boolean).join(' · ');
+    L.push(...lr(det, `${nNum(i.qtd, i.qtd % 1 ? 2 : 0)} x ${nNum(i.preco)} = ${nNum(i.qtd * i.preco)}`).map(t => ({ t, m: 1 })));
+  });
+  L.push({ hr: 1 });
+  if (s.frete) { L.push(...lr('Subtotal', nMoney(s.subtotal, s.moeda)).map(t => ({ t }))); L.push(...lr('Frete ' + nNum(s.frete.pct, 2).replace(/,00$/, '') + '%' + (s.frete.freteiro ? ' · ' + s.frete.freteiro : ''), nMoney(s.frete.valor, s.moeda)).map(t => ({ t }))); }
+  L.push(...lr('TOTAL', nMoney(s.total, s.moeda)).map(t => ({ t, b: 1, big: 1 })));
+  if (saleIn(s, o) != null) L.push(...lr('Equivale a', nMoney(saleIn(s, o), o)).map(t => ({ t })));
+  if (+s.cotacao) L.push(...lr('Câmbio do dia', 'US$ 1 = R$ ' + nNum(s.cotacao, 4).replace(/0{1,2}$/, '')).map(t => ({ t, m: 1 })));
+  if (s.pagamento) L.push(...lr('Pagamento', s.pagamento).map(t => ({ t })));
+  L.push({ hr: 2 });
+  if (!buy) (cfg.rodape ? w(cfg.rodape) : ['Obrigado pela preferência!']).forEach(x => L.push({ t: c(x) }));
+  L.push({ t: c(buy ? 'Documento interno de entrada de estoque' : 'Documento sem valor fiscal'), m: 1 });
+  return L;
+}
+async function notaImage(s) {
+  const fam = '"IBM Plex Mono", "Courier New", monospace';
+  try { await Promise.all([document.fonts.load(`15px ${fam}`), document.fonts.load(`600 15px ${fam}`)]); } catch (e) {}
+  const lines = notaImgLines(s), k = 2, fs = 15, pad = 28;
+  const cv = document.createElement('canvas'), x = cv.getContext('2d');
+  x.font = `${fs}px ${fam}`; const cw = x.measureText('M').width;
+  const lh = l => l.hr ? 14 : l.big ? 26 : 21;
+  const W = Math.ceil(cw * IW + pad * 2), H = lines.reduce((a, l) => a + lh(l), 0) + pad * 2;
+  cv.width = W * k; cv.height = H * k; x.scale(k, k);
+  x.fillStyle = '#ffffff'; x.fillRect(0, 0, W, H);
+  let y = pad;
+  for (const l of lines) {
+    const h = lh(l);
+    if (l.hr) { x.strokeStyle = l.hr === 2 ? '#0f2a44' : '#c9d2dc'; x.lineWidth = l.hr === 2 ? 2 : 1; x.setLineDash(l.hr === 2 ? [] : [4, 3]); x.beginPath(); x.moveTo(pad, y + h / 2); x.lineTo(W - pad, y + h / 2); x.stroke(); x.setLineDash([]); }
+    else {
+      x.font = `${l.b ? 600 : 400} ${l.big ? fs + 2 : fs}px ${fam}`; x.fillStyle = l.red ? '#b42318' : l.m ? '#5b6876' : '#0f1720'; x.textBaseline = 'middle';
+      // draw character by character on the grid so columns stay aligned even with a bold or larger font
+      [...l.t].forEach((ch, i) => x.fillText(ch, pad + i * cw, y + h / 2));
+    }
+    y += h;
+  }
+  return new Promise(r => cv.toBlob(b => r({ blob: b, url: cv.toDataURL('image/png') }), 'image/png'));
+}
+const purchaseDoc = p => ({ kind: 'compra', id: p.id, loja: p.loja, data: p.data, ts: p.ts, moeda: p.moeda, total: p.total, cotacao: p.cotacao, pagamento: '', cliente: p.fornecedor, vendedorNome: p.criadoPor,
+  subtotal: p.subtotal, frete: +p.fretePct || p.freteiro ? { pct: +p.fretePct || 0, valor: +p.freteValor || 0, freteiro: p.freteiro } : null, itens: (p.itens || []).map(i => ({ nome: i.nome, qtd: i.qtd, preco: i.custo })) });
+// after finishing a sale or a purchase the user chooses: print, WhatsApp, or nothing
+let doneDoc = null, doneAfter = null;
+function askDoc(doc, after) {
+  doneDoc = doc; doneAfter = after || null;
+  $('#doneTitle').textContent = doc.kind === 'compra' ? 'Entrada registrada' : 'Venda registrada';
+  $('#doneTotal').textContent = fm(doc.total, doc.moeda);
+  $('#doneModal').hidden = false; $('#donePrint').focus();
+}
+function closeDone() { $('#doneModal').hidden = true; const f = doneAfter; doneAfter = null; if (f) setTimeout(f, 30); }
+$('#donePrint').onclick = () => { const d = doneDoc; closeDone(); printNota(d); };
+$('#doneWa').onclick = () => { const d = doneDoc; $('#doneModal').hidden = true; doneAfter = null; openWa(d); };
+$('#doneClose').onclick = closeDone;
+document.addEventListener('keydown', e => {
+  if (!$('#doneModal').hidden) {
+    if (e.key === 'Escape') { e.preventDefault(); closeDone(); } else if (e.key === '1') { e.preventDefault(); $('#donePrint').click(); } else if (e.key === '2') { e.preventDefault(); $('#doneWa').click(); }
+  } else if (!$('#waModal').hidden && e.key === 'Escape') $('#waModal').hidden = true;
+});
+// turns a local number typed with the customer name into the international form wa.me needs
+function intlPhone(t, loja) {
+  let d = String(t || '').replace(/\D/g, '');
+  if (d.length < 8) return '';
+  if (d.startsWith('00')) d = d.slice(2);
+  if (loja === 'PY' && d.startsWith('09') && d.length === 10) return '595' + d.slice(1);
+  if (loja === 'SP' && !d.startsWith('55') && (d.length === 10 || d.length === 11)) return '55' + d.replace(/^0/, '');
+  return d;
+}
+let waSale = null, waPic = null;
+const waName = s => `${s.kind === 'compra' ? 'entrada' : 'nota'}-${String(s.id).padStart(6, '0')}.png`;
+async function openWa(s) {
+  if (!s) return;
+  waSale = s; waPic = await notaImage(s);
+  $('#waImg').src = waPic.url;
+  $('#waPhone').value = s.kind === 'compra' ? '' : intlPhone(s.cliente, s.loja);
+  const file = new File([waPic.blob], waName(s), { type: 'image/png' });
+  $('#waShare').hidden = !(navigator.canShare && navigator.canShare({ files: [file] }));
+  $('#waModal').hidden = false; $('#waPhone').focus();
+}
+document.addEventListener('click', e => { const b = e.target.closest('[data-wa]'); if (b) openWa(S.sales.find(x => x.id === +b.dataset.wa)); });
+document.addEventListener('click', e => {
+  const pp = e.target.closest('[data-printp]'), wp = e.target.closest('[data-wap]'), p = pp || wp ? S.purchases.find(x => x.id === +(pp || wp).dataset[pp ? 'printp' : 'wap']) : null;
+  if (p) (pp ? printNota : openWa)(purchaseDoc(p));
+});
+$('#waClose').onclick = () => { $('#waModal').hidden = true; };
+$('#waDl').onclick = () => { const a = document.createElement('a'); a.href = waPic.url; a.download = waName(waSale); a.click(); };
+$('#waShare').onclick = async () => {
+  try { await navigator.share({ files: [new File([waPic.blob], waName(waSale), { type: 'image/png' })], title: 'Nota de venda' }); } catch (e) { if (e.name !== 'AbortError') toast('Não foi possível compartilhar. Use "Copiar imagem".', true); }
+};
+$('#waGo').onclick = async () => {
+  let phone = $('#waPhone').value.replace(/\D/g, '');
+  if (phone && phone.length < 10) return toast('Informe o número com o código do país, por exemplo 595981123456.', true);
+  let copied = false;
+  try { await navigator.clipboard.write([new ClipboardItem({ 'image/png': waPic.blob })]); copied = true; } catch (e) {}
+  if (!copied) $('#waDl').click();
+  window.open('https://wa.me/' + phone, '_blank', 'noopener');
+  toast(copied ? 'Imagem copiada. No WhatsApp, cole com Ctrl+V e envie.' : 'A imagem foi baixada. No WhatsApp, anexe o arquivo e envie.');
+};
 
 /* ---------- users ---------- */
 let editU = null;

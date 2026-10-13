@@ -111,7 +111,7 @@ main{padding:22px 24px 60px;max-width:1440px;width:100%}
 .seg button{border:0;background:none;padding:6px 12px;font-weight:600;font-size:.84rem;color:var(--muted)}
 .seg button+button{border-left:1px solid var(--line)}
 .seg button[aria-pressed="true"]{background:var(--ink);color:var(--surface)}
-input[type=text],input[type=number],input[type=password],input[type=date],input[type=search],select{background:var(--surface);border:1px solid var(--line-2);border-radius:7px;padding:8px 10px;min-width:0;width:100%}
+input[type=text],input[type=tel],input[type=number],input[type=password],input[type=date],input[type=search],select{background:var(--surface);border:1px solid var(--line-2);border-radius:7px;padding:8px 10px;min-width:0;width:100%}
 input:focus,select:focus{border-color:var(--accent);outline:none;box-shadow:0 0 0 3px var(--accent-soft)}
 .field{display:flex;flex-direction:column;gap:4px;min-width:0}
 .field.end{justify-content:flex-end}
@@ -203,3 +203,30 @@ tr.cancel td{color:var(--muted);text-decoration:line-through}
 .fx-manual{margin-top:14px;border-top:1px solid var(--line);padding-top:10px}
 .fx-manual summary{cursor:pointer;font-weight:600}
 @media (max-width:600px){.fx-auto{grid-template-columns:1fr}}
+
+/* sale note for dot-matrix printers (80 columns, 10 cpi) */
+#printArea{display:none}
+.steps{margin:8px 0 0 18px;display:grid;gap:6px;line-height:1.45}
+.nota-loja h3{margin:0 0 8px;font-size:14px}
+.nota-loja .field{margin-bottom:8px}
+.nota-loja textarea{width:100%;min-height:56px;font:inherit;padding:8px 10px;border:1px solid var(--line-2);border-radius:8px;background:var(--surface);color:var(--fg)}
+@media print{
+  @page{size:8.5in 11in;margin:0.25in 0.2in}
+  body{background:#fff !important}
+  body>*:not(#printArea){display:none !important}
+  #printArea{display:block !important}
+  #printArea pre{font-family:"Courier New",Courier,monospace;font-size:12pt;line-height:1.2;color:#000;margin:0;white-space:pre}
+}
+
+.wa-card{width:min(560px,100%);max-height:calc(100vh - 32px);overflow:auto}
+.wa-card img{display:block;width:100%;max-height:46vh;object-fit:contain;object-position:top;border:1px solid var(--line);border-radius:8px;background:#fff;margin:10px 0}
+.row.wrap{flex-wrap:wrap}
+
+.done-card{text-align:center;display:flex;flex-direction:column;align-items:center;gap:10px}
+.done-ok{width:48px;height:48px;border-radius:50%;background:var(--accent-soft);color:var(--accent);display:grid;place-items:center;font-size:24px;font-weight:700}
+.done-total{font-size:22px;font-weight:600}
+.done-btns{display:grid;grid-template-columns:1fr 1fr;gap:10px;width:100%;margin-top:6px}
+.done-btns .btn{justify-content:center;padding:14px 10px}
+.btn.wa{background:#1f9d55;border-color:#1f9d55;color:#fff}
+.btn.wa:hover{filter:brightness(1.05)}
+@media (max-width:480px){.done-btns{grid-template-columns:1fr}}

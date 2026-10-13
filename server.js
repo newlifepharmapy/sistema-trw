@@ -186,7 +186,7 @@ app.get('/api/data', auth, h(async (req, res) => {
   const out = {
     v: version,
     me: pubUser(u),
-    settings: st ? { cotacao: st.cotacao, atualizadoEm: st.atualizado_em, atualizadoPor: st.atualizado_por, spread: st.spread, auto: st.auto, binance: st.binance, binanceEm: st.binance_em, binanceErro: st.binance_erro } : null,
+    settings: st ? { cotacao: st.cotacao, atualizadoEm: st.atualizado_em, atualizadoPor: st.atualizado_por, spread: st.spread, auto: st.auto, binance: st.binance, binanceEm: st.binance_em, binanceErro: st.binance_erro, nota: st.nota } : null,
     historico: hist.rows.map(r => ({ d: r.dia, v: r.valor, por: r.por, ts: r.ts })),
     products: products.rows.map(mapProduct),
     sales: sales.rows.map(mapSale),
@@ -259,6 +259,14 @@ async function autoRate(force) {
     await saveRate(r4(p + (+st.spread || 0)), 'Binance USDT');
   } finally { fxBusy = false; }
 }
+// header and footer printed on the sale note, one per store
+const NOTA_F = ['empresa', 'documento', 'endereco', 'telefone', 'rodape'];
+app.post('/api/nota/config', auth, need('usuarios'), h(async (req, res) => {
+  const nota = Object.fromEntries(LOJAS.map(l => [l, Object.fromEntries(NOTA_F.map(k => [k, str(req.body?.[l]?.[k], k === 'rodape' ? 300 : 120)]))]));
+  await pool.query('insert into settings (id) values (1) on conflict (id) do nothing');
+  await pool.query('update settings set nota=$1 where id=1', [JSON.stringify(nota)]);
+  bump(); res.json({ ok: true });
+}));
 app.post('/api/cambio/config', auth, need('cambio'), h(async (req, res) => {
   const spread = r4(num(req.body.spread));
   if (Math.abs(spread) > 5) bad('Spread muito alto. Informe em reais, por exemplo 0,05.');
@@ -374,7 +382,7 @@ app.post('/api/purchases', auth, need('compras'), h(async (req, res) => {
   const itensIn = Array.isArray(b.itens) ? b.itens.filter(i => num(i.qtd) > 0 && i.pid).slice(0, 300) : [];
   if (!itensIn.length) bad('Adicione pelo menos um produto.');
   const fretePct = loja === 'SP' ? Math.max(0, num(b.fretePct)) : 0;
-  await tx(async c => {
+  const row = await tx(async c => {
     const rate = await currentRate(c);
     if (moeda === 'BRL' && !rate) bad('Defina a cotação do dólar antes.');
     const col = loja === 'PY' ? 'estoque_py' : 'estoque_sp';
@@ -387,11 +395,12 @@ app.post('/api/purchases', auth, need('compras'), h(async (req, res) => {
       itens.push({ pid: rows[0].id, nome: rows[0].nome, qtd, custo });
     }
     const subtotal = r2(itens.reduce((a, i) => a + i.qtd * i.custo, 0)), freteValor = r2(subtotal * fretePct / 100);
-    await c.query(`insert into purchases (data,ts,fornecedor,loja,moeda,itens,subtotal,frete_pct,frete_valor,freteiro,total,cotacao,criado_por)
-      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+    const r = await c.query(`insert into purchases (data,ts,fornecedor,loja,moeda,itens,subtotal,frete_pct,frete_valor,freteiro,total,cotacao,criado_por)
+      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) returning *`,
       [isDate(b.data) ? b.data : todayStr(), Date.now(), str(b.fornecedor), loja, moeda, JSON.stringify(itens), subtotal, fretePct, freteValor, loja === 'SP' ? str(b.freteiro) : '', r2(subtotal + freteValor), rate, req.user.nome]);
+    return r.rows[0];
   });
-  bump(); res.json({ ok: true });
+  bump(); res.json({ ok: true, purchase: mapPurchase(row) });
 }));
 
 // ---------- importações ----------
