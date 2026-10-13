@@ -477,8 +477,8 @@ function renderImp() {
 }
 
 /* ---------- total stock ---------- */
-const FLAG_PY = '<svg class="flag-ic" viewBox="0 0 30 20" role="img" aria-label="Bandeira do Paraguay"><rect width="30" height="20" fill="#0038a8"/><rect width="30" height="13.34" fill="#fff"/><rect width="30" height="6.67" fill="#d52b1e"/><circle cx="15" cy="10" r="2.3" fill="none" stroke="#0038a8" stroke-width=".7"/><circle cx="15" cy="10" r=".8" fill="#fedf00"/></svg>';
-const FLAG_BR = '<svg class="flag-ic" viewBox="0 0 30 20" role="img" aria-label="Bandeira do Brasil"><rect width="30" height="20" fill="#009b3a"/><path d="M15 2.2 27.2 10 15 17.8 2.8 10Z" fill="#fedf00"/><circle cx="15" cy="10" r="4.4" fill="#002776"/><path d="M10.8 9.2q4.4-1.4 8.4 1.6" stroke="#fff" stroke-width=".7" fill="none"/></svg>';
+const FLAG_PY = '<img class="flag-ic" src="/flag-py.svg" alt="Bandeira do Paraguay">';
+const FLAG_BR = '<img class="flag-ic" src="/flag-br.svg" alt="Bandeira do Brasil">';
 $('#sFilter').oninput = renderStock; $('#sGrupo').onchange = renderStock; $('#sMarca').onchange = renderStock;
 const matchP = (p, f) => !f || [p.nome, p.codigo, p.lote, p.grupo, p.marca].some(x => (x || '').toLowerCase().includes(f));
 /* ---------- groups and brands ---------- */
