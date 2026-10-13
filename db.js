@@ -130,6 +130,7 @@ create index if not exists purchases_ts_idx on purchases (ts desc);
 alter table purchases add column if not exists cancelada boolean not null default false;
 alter table purchases add column if not exists cancelada_por text;
 alter table purchases add column if not exists cancelada_em bigint;
+alter table purchases add column if not exists pagamento text not null default '';
 
 
 create table if not exists imports (

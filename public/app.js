@@ -393,9 +393,11 @@ function renderHist() {
 }
 
 /* ---------- purchases ---------- */
+// the currency select also says how the dollars are paid: "USD|EFECTIVO", "USD|USDT" or "BRL"
+const bCurV = () => $('#bCur').value.split('|')[0], bPayV = () => $('#bCur').value.split('|')[1] || '';
 $('#bDate').value = today();
 const productOptions = () => '<option value="">Selecione…</option>' + S.products.map(p => `<option value="${p.id}">${esc((p.codigo ? p.codigo + ' · ' : '') + p.nome)}</option>`).join('');
-$('#bProd').onchange = () => { const p = S.products.find(x => x.id === +$('#bProd').value); if (p && +p.custo) $('#bCost').value = $('#bCur').value === 'USD' ? p.custo : (S.rate ? r2(p.custo * S.rate) : ''); };
+$('#bProd').onchange = () => { const p = S.products.find(x => x.id === +$('#bProd').value); if (p && +p.custo) $('#bCost').value = bCurV() === 'USD' ? p.custo : (S.rate ? r2(p.custo * S.rate) : ''); };
 $('#bAdd').onclick = () => {
   const p = S.products.find(x => x.id === +$('#bProd').value), q = +$('#bQty').value, c = +$('#bCost').value;
   if (!p) return toast('Escolha um produto. Cadastre-o antes em Produtos.', true); if (!(q > 0) || !(c >= 0)) return toast('Informe quantidade e custo.', true);
@@ -406,7 +408,7 @@ $('#bCur').onchange = renderBuyItems; $('#bLoja').onchange = renderBuyItems; $('
 const freteOn = () => $('#bLoja').value === 'SP';
 const fretePct = () => freteOn() ? Math.max(0, +$('#bFrete').value || 0) : 0;
 function renderBuyItems() {
-  const cur = $('#bCur').value, fp = fretePct(), fon = freteOn();
+  const cur = bCurV(), fp = fretePct(), fon = freteOn();
   $('#bFreteBox').hidden = !fon; $('#bCostFH').hidden = !fon;
   $('#bItems').innerHTML = S.buyItems.map((i, k) => `<tr><td>${esc(i.nome)}</td><td class="num">${esc(i.lote || '—')}</td><td class="num">${i.validade ? fVal(i.validade) : '—'}</td><td class="r num">${i.qtd}</td><td class="r num">${fm(i.custo, cur)}</td>${fon ? `<td class="r num"><b>${fm(i.custo * (1 + fp / 100), cur)}</b></td>` : ''}<td class="r num">${fm(i.qtd * i.custo * (1 + fp / 100), cur)}</td><td><button class="x" data-bi="${k}" aria-label="Remover">×</button></td></tr>`).join('') || '<tr><td colspan="8" class="empty">Adicione os produtos desta entrada.</td></tr>';
   const sub = S.buyItems.reduce((a, i) => a + i.qtd * i.custo, 0), fv = sub * fp / 100, t = sub + fv, o = cur === 'USD' ? 'BRL' : 'USD';
@@ -419,7 +421,7 @@ $('#bItems').onclick = e => { const b = e.target.closest('[data-bi]'); if (b) { 
 $('#bSave').onclick = async () => {
   if (!S.buyItems.length) return toast('Adicione pelo menos um produto.', true);
   $('#bSave').disabled = true;
-  const ok = await act(() => api('/purchases', 'POST', { data: $('#bDate').value, fornecedor: $('#bSup').value, loja: $('#bLoja').value, moeda: $('#bCur').value, itens: S.buyItems, fretePct: fretePct(), freteiro: $('#bFreteiro').value }), 'Entrada registrada e estoque atualizado.');
+  const ok = await act(() => api('/purchases', 'POST', { data: $('#bDate').value, fornecedor: $('#bSup').value, loja: $('#bLoja').value, moeda: bCurV(), pagamento: bPayV(), itens: S.buyItems, fretePct: fretePct(), freteiro: $('#bFreteiro').value }), 'Entrada registrada e estoque atualizado.');
   $('#bSave').disabled = false;
   if (ok) { S.buyItems = []; $('#bSup').value = ''; $('#bFreteiro').value = ''; $('#bFrete').value = ''; renderBuyItems(); if (ok.purchase) askDoc(purchaseDoc(ok.purchase)); }
 };
@@ -427,7 +429,7 @@ function renderBuy() {
   const sel = $('#bProd'), v = sel.value; sel.innerHTML = productOptions(); sel.value = v;
   renderBuyItems();
   const L = S.purchases.slice(0, 200);
-  $('#buyList').innerHTML = L.length ? `<table><thead><tr><th>Data</th><th>Fornecedor</th><th>Destino</th><th>Itens</th><th>Frete</th><th>Registrado por</th><th class="r">Total</th><th></th></tr></thead><tbody>${L.map(p => { const o = p.moeda === 'USD' ? 'BRL' : 'USD'; return `<tr class="${p.cancelada ? 'cancel' : ''}"><td class="num">${fDate(p.data)}</td><td>${esc(p.fornecedor || '—')}</td><td><span class="pill ${p.loja.toLowerCase()}">${p.loja}</span></td><td>${(p.itens || []).map(i => `${i.qtd}× ${esc(i.nome)}`).join(', ')}</td><td>${p.freteiro || +p.fretePct ? `${esc(p.freteiro || '—')}<div class="hint num">${+p.fretePct || 0}% · ${fm(+p.freteValor || 0, p.moeda)}</div>` : '—'}</td><td>${esc(p.criadoPor)}</td><td class="r num"><b>${fm(p.total, p.moeda)}</b><div class="hint">${fm(conv(p.total, p.moeda, o), o)}</div></td><td class="r" style="white-space:nowrap"><button class="btn small" data-printp="${p.id}">Imprimir</button> <button class="btn small" data-wap="${p.id}">WhatsApp</button>${p.cancelada ? ' <span class="pill bad">cancelada</span>' + (can('excluir') ? ` <button class="btn small danger" data-delp2="${p.id}">Excluir</button>` : '') : can('cancelar') ? ` <button class="btn small danger" data-cancelp="${p.id}">Cancelar</button>` : ''}</td></tr>`; }).join('')}</tbody></table>` : '<div class="empty">Nenhuma entrada registrada.</div>';
+  $('#buyList').innerHTML = L.length ? `<table><thead><tr><th>Data</th><th>Fornecedor</th><th>Destino</th><th>Itens</th><th>Frete</th><th>Registrado por</th><th class="r">Total</th><th></th></tr></thead><tbody>${L.map(p => { const o = p.moeda === 'USD' ? 'BRL' : 'USD'; return `<tr class="${p.cancelada ? 'cancel' : ''}"><td class="num">${fDate(p.data)}</td><td>${esc(p.fornecedor || '—')}</td><td><span class="pill ${p.loja.toLowerCase()}">${p.loja}</span></td><td>${(p.itens || []).map(i => `${i.qtd}× ${esc(i.nome)}`).join(', ')}</td><td>${p.freteiro || +p.fretePct ? `${esc(p.freteiro || '—')}<div class="hint num">${+p.fretePct || 0}% · ${fm(+p.freteValor || 0, p.moeda)}</div>` : '—'}</td><td>${esc(p.criadoPor)}</td><td class="r num"><b>${fm(p.total, p.moeda)}</b><div class="hint">${p.pagamento ? esc(p.pagamento) + ' · ' : ''}${fm(conv(p.total, p.moeda, o), o)}</div></td><td class="r" style="white-space:nowrap"><button class="btn small" data-printp="${p.id}">Imprimir</button> <button class="btn small" data-wap="${p.id}">WhatsApp</button>${p.cancelada ? ' <span class="pill bad">cancelada</span>' + (can('excluir') ? ` <button class="btn small danger" data-delp2="${p.id}">Excluir</button>` : '') : can('cancelar') ? ` <button class="btn small danger" data-cancelp="${p.id}">Cancelar</button>` : ''}</td></tr>`; }).join('')}</tbody></table>` : '<div class="empty">Nenhuma entrada registrada.</div>';
 }
 
 /* ---------- imports ---------- */
@@ -771,7 +773,7 @@ async function notaImage(s) {
   }
   return new Promise(r => cv.toBlob(b => r({ blob: b, url: cv.toDataURL('image/png') }), 'image/png'));
 }
-const purchaseDoc = p => ({ kind: 'compra', id: p.id, loja: p.loja, data: p.data, ts: p.ts, moeda: p.moeda, total: p.total, cotacao: p.cotacao, pagamento: '', cliente: p.fornecedor, vendedorNome: p.criadoPor,
+const purchaseDoc = p => ({ kind: 'compra', id: p.id, loja: p.loja, data: p.data, ts: p.ts, moeda: p.moeda, total: p.total, cotacao: p.cotacao, pagamento: p.pagamento || '', cliente: p.fornecedor, vendedorNome: p.criadoPor,
   subtotal: p.subtotal, frete: +p.fretePct || p.freteiro ? { pct: +p.fretePct || 0, valor: +p.freteValor || 0, freteiro: p.freteiro } : null, itens: (p.itens || []).map(i => ({ nome: i.nome, lote: i.lote || '', validade: i.validade || '', qtd: i.qtd, preco: i.custo })) });
 // after finishing a sale or a purchase the user chooses: print, WhatsApp, or nothing
 let doneDoc = null, doneAfter = null;

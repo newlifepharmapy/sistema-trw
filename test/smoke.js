@@ -20,8 +20,9 @@ function client() {
   const p = await adm('/api/products', 'POST', { codigo: 'DIP500', nome: 'Dipirona 500mg', lote: 'IGNORADO', custo: 2, precoUsd: 4, estoque: { PY: 9, SP: 5 } });
   assert(p.status === 200, 'produto criado');
   // lot and expiry come with each stock entry; expiry is month/year and kept as the month's last day
-  const le = await adm('/api/purchases', 'POST', { loja: 'PY', moeda: 'USD', itens: [{ pid: p.data.id, qtd: 1, custo: 2, lote: 'L123', validade: '2027-02-01' }] });
+  const le = await adm('/api/purchases', 'POST', { loja: 'PY', moeda: 'USD', pagamento: 'USDT', itens: [{ pid: p.data.id, qtd: 1, custo: 2, lote: 'L123', validade: '2027-02-01' }] });
   assert(le.status === 200 && le.data.purchase.itens[0].lote === 'L123' && le.data.purchase.itens[0].validade === '2027-02-28', 'entrada guarda lote e validade (fim do mês)');
+  assert(le.data.purchase.pagamento === 'USDT', 'compra em dólar guarda EFECTIVO ou USDT');
   const lp = (await adm('/api/data')).data.products.find(x => x.id === p.data.id);
   assert(lp.lote === 'L123' && lp.validade === '2027-02-28' && lp.estoque.PY === 10, 'produto mostra o lote da última entrada; cadastro não grava lote');
   assert((await adm('/api/products', 'POST', { codigo: 'dip500', nome: 'Dup' })).status === 400, 'código duplicado recusado');

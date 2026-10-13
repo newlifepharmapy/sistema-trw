@@ -97,7 +97,7 @@ const pubUser = u => ({ id: u.id, login: u.login, nome: u.nome, papel: u.papel, 
 const mapProduct = p => ({ id: p.id, codigo: p.codigo, nome: p.nome, grupo: p.grupo, marca: p.marca, lote: p.lote, validade: p.validade || '', custo: p.custo, custoSp: p.custo_sp, precoUsd: p.preco_usd, precoBrl: p.preco_brl, estoque: { PY: p.estoque_py, SP: p.estoque_sp } });
 const mapTransfer = t => ({ id: t.id, data: t.data, ts: t.ts, itens: t.itens, subtotal: t.subtotal, fretePct: t.frete_pct, freteValor: t.frete_valor, freteiro: t.freteiro, total: t.total, criadoPor: t.criado_por, cancelada: t.cancelada, canceladaPor: t.cancelada_por });
 const mapSale = s => ({ id: s.id, loja: s.loja, data: s.data, ts: s.ts, moeda: s.moeda, total: s.total, cotacao: s.cotacao, pagamento: s.pagamento, cliente: s.cliente, itens: s.itens, custoUsd: s.custo_usd, vendedorId: s.vendedor_id, vendedorNome: s.vendedor_nome, cancelada: s.cancelada, canceladaPor: s.cancelada_por });
-const mapPurchase = p => ({ id: p.id, data: p.data, ts: p.ts, fornecedor: p.fornecedor, loja: p.loja, moeda: p.moeda, itens: p.itens, subtotal: p.subtotal, fretePct: p.frete_pct, freteValor: p.frete_valor, freteiro: p.freteiro, total: p.total, cotacao: p.cotacao, criadoPor: p.criado_por, cancelada: p.cancelada, canceladaPor: p.cancelada_por });
+const mapPurchase = p => ({ id: p.id, data: p.data, ts: p.ts, fornecedor: p.fornecedor, loja: p.loja, moeda: p.moeda, itens: p.itens, subtotal: p.subtotal, fretePct: p.frete_pct, freteValor: p.frete_valor, freteiro: p.freteiro, total: p.total, cotacao: p.cotacao, pagamento: p.pagamento, criadoPor: p.criado_por, cancelada: p.cancelada, canceladaPor: p.cancelada_por });
 const mapImport = i => ({ id: i.id, ref: i.ref, fornecedor: i.fornecedor, origem: i.origem, data: i.data, eta: i.eta || '', status: i.status, itens: i.itens, custos: i.custos, recebida: i.recebida, recebidaEm: i.recebida_em, recebidaPor: i.recebida_por, custoTotal: i.custo_total, ts: i.ts, criadoPor: i.criado_por, cancelada: i.cancelada, canceladaPor: i.cancelada_por });
 
 async function currentRate(c = pool) {
@@ -445,6 +445,8 @@ app.post('/api/purchases', auth, need('compras'), h(async (req, res) => {
   const itensIn = Array.isArray(b.itens) ? b.itens.filter(i => num(i.qtd) > 0 && i.pid).slice(0, 300) : [];
   if (!itensIn.length) bad('Adicione pelo menos um produto.');
   const fretePct = loja === 'SP' ? Math.max(0, num(b.fretePct)) : 0;
+  // dollar purchases say how they were paid
+  const pagamento = moeda === 'USD' ? (['EFECTIVO', 'USDT'].includes(b.pagamento) ? b.pagamento : '') : '';
   const row = await tx(async c => {
     const rate = await currentRate(c);
     if (moeda === 'BRL' && !rate) bad('Defina a cotação do dólar antes.');
@@ -459,9 +461,9 @@ app.post('/api/purchases', auth, need('compras'), h(async (req, res) => {
       itens.push({ pid: rows[0].id, nome: rows[0].nome, qtd, custo, lote, validade: validade || '' });
     }
     const subtotal = r2(itens.reduce((a, i) => a + i.qtd * i.custo, 0)), freteValor = r2(subtotal * fretePct / 100);
-    const r = await c.query(`insert into purchases (data,ts,fornecedor,loja,moeda,itens,subtotal,frete_pct,frete_valor,freteiro,total,cotacao,criado_por)
-      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) returning *`,
-      [isDate(b.data) ? b.data : todayStr(), Date.now(), str(b.fornecedor), loja, moeda, JSON.stringify(itens), subtotal, fretePct, freteValor, loja === 'SP' ? str(b.freteiro) : '', r2(subtotal + freteValor), rate, req.user.nome]);
+    const r = await c.query(`insert into purchases (data,ts,fornecedor,loja,moeda,itens,subtotal,frete_pct,frete_valor,freteiro,total,cotacao,criado_por,pagamento)
+      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) returning *`,
+      [isDate(b.data) ? b.data : todayStr(), Date.now(), str(b.fornecedor), loja, moeda, JSON.stringify(itens), subtotal, fretePct, freteValor, loja === 'SP' ? str(b.freteiro) : '', r2(subtotal + freteValor), rate, req.user.nome, pagamento]);
     return r.rows[0];
   });
   bump(); res.json({ ok: true, purchase: mapPurchase(row) });
