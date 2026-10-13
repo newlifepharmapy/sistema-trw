@@ -97,7 +97,7 @@ const pubUser = u => ({ id: u.id, login: u.login, nome: u.nome, papel: u.papel, 
 const mapProduct = p => ({ id: p.id, codigo: p.codigo, nome: p.nome, lote: p.lote, validade: p.validade || '', custo: p.custo, precoUsd: p.preco_usd, precoBrl: p.preco_brl, estoque: { PY: p.estoque_py, SP: p.estoque_sp } });
 const mapSale = s => ({ id: s.id, loja: s.loja, data: s.data, ts: s.ts, moeda: s.moeda, total: s.total, cotacao: s.cotacao, pagamento: s.pagamento, cliente: s.cliente, itens: s.itens, custoUsd: s.custo_usd, vendedorId: s.vendedor_id, vendedorNome: s.vendedor_nome, cancelada: s.cancelada, canceladaPor: s.cancelada_por });
 const mapPurchase = p => ({ id: p.id, data: p.data, ts: p.ts, fornecedor: p.fornecedor, loja: p.loja, moeda: p.moeda, itens: p.itens, subtotal: p.subtotal, fretePct: p.frete_pct, freteValor: p.frete_valor, freteiro: p.freteiro, total: p.total, cotacao: p.cotacao, criadoPor: p.criado_por, cancelada: p.cancelada, canceladaPor: p.cancelada_por });
-const mapImport = i => ({ id: i.id, ref: i.ref, fornecedor: i.fornecedor, origem: i.origem, data: i.data, eta: i.eta || '', status: i.status, itens: i.itens, custos: i.custos, recebida: i.recebida, recebidaEm: i.recebida_em, recebidaPor: i.recebida_por, custoTotal: i.custo_total, ts: i.ts, criadoPor: i.criado_por });
+const mapImport = i => ({ id: i.id, ref: i.ref, fornecedor: i.fornecedor, origem: i.origem, data: i.data, eta: i.eta || '', status: i.status, itens: i.itens, custos: i.custos, recebida: i.recebida, recebidaEm: i.recebida_em, recebidaPor: i.recebida_por, custoTotal: i.custo_total, ts: i.ts, criadoPor: i.criado_por, cancelada: i.cancelada, canceladaPor: i.cancelada_por });
 
 async function currentRate(c = pool) {
   const { rows } = await c.query('select cotacao from settings where id=1');
@@ -196,7 +196,7 @@ app.get('/api/data', auth, h(async (req, res) => {
   const none = Promise.resolve({ rows: [] });
   const [p, i, us] = await Promise.all([
     has(u, 'compras') ? pool.query('select * from purchases where ts >= $1 order by ts desc', [since]) : none,
-    has(u, 'importacoes') || has(u, 'dash') ? pool.query('select * from imports where ts >= $1 or not recebida order by ts desc', [since]) : none,
+    has(u, 'importacoes') || has(u, 'dash') ? pool.query('select * from imports where ts >= $1 or not (recebida or cancelada) order by ts desc', [since]) : none,
     has(u, 'usuarios') ? pool.query('select * from users order by nome') : none,
   ]);
   out.purchases = p.rows.map(mapPurchase);
@@ -373,6 +373,45 @@ app.delete('/api/purchases/:id', auth, need('excluir'), h(async (req, res) => {
   if (!r.rowCount) bad('Só é possível excluir compras canceladas. Cancele a compra antes.');
   bump(); res.json({ ok: true });
 }));
+// an import is cancelled like a purchase: if it had already entered the PY stock, that quantity comes out again
+app.post('/api/imports/:id/cancel', auth, need('cancelar'), need('importacoes'), h(async (req, res) => {
+  await tx(async c => {
+    const { rows } = await c.query('select * from imports where id=$1 for update', [+req.params.id]);
+    const imp = rows[0]; if (!imp) bad('Importação não encontrada.'); if (imp.cancelada) bad('Esta importação já foi cancelada.');
+    if (imp.recebida) for (const i of imp.itens) if (i.pid) await c.query('update products set estoque_py = estoque_py - $1 where id=$2', [i.qtd, i.pid]);
+    await c.query(`update imports set cancelada=true, status='Cancelada', cancelada_por=$1, cancelada_em=$2 where id=$3`, [req.user.nome, Date.now(), imp.id]);
+  });
+  bump(); res.json({ ok: true });
+}));
+app.delete('/api/imports/:id', auth, need('excluir'), h(async (req, res) => {
+  const r = await pool.query('delete from imports where id=$1 and cancelada', [+req.params.id]);
+  if (!r.rowCount) bad('Só é possível excluir importações canceladas. Cancele a importação antes.');
+  bump(); res.json({ ok: true });
+}));
+// products: past sales, purchases and imports keep their own copy of the item name, so the product row can go
+app.delete('/api/products/:id/definitivo', auth, need('excluir'), h(async (req, res) => {
+  const r = await pool.query('delete from products where id=$1', [+req.params.id]);
+  if (!r.rowCount) bad('Produto não encontrado.');
+  bump(); res.json({ ok: true });
+}));
+app.delete('/api/cotacoes/:dia', auth, need('excluir'), h(async (req, res) => {
+  if (!isDate(req.params.dia)) bad('Data inválida.');
+  await pool.query('delete from rate_history where dia=$1', [req.params.dia]);
+  bump(); res.json({ ok: true });
+}));
+// a user must be deactivated first; their past sales keep the seller's name
+app.delete('/api/users/:id', auth, need('excluir'), need('usuarios'), h(async (req, res) => {
+  const id = +req.params.id;
+  if (id === req.user.id) bad('Você não pode excluir o seu próprio usuário.');
+  await tx(async c => {
+    const { rows } = await c.query('select ativo from users where id=$1 for update', [id]);
+    if (!rows[0]) bad('Usuário não encontrado.'); if (rows[0].ativo) bad('Desative o usuário antes de excluir.');
+    await c.query('update sales set vendedor_id=null where vendedor_id=$1', [id]);
+    await c.query('delete from users where id=$1', [id]);
+  });
+  await pool.query(`delete from sessions where (sess->>'uid')::int = $1`, [id]).catch(() => {});
+  bump(); res.json({ ok: true });
+}));
 
 const csvq = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
 const br2 = n => (+n || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -442,20 +481,20 @@ app.post('/api/imports', auth, need('importacoes'), h(async (req, res) => {
 }));
 app.put('/api/imports/:id', auth, need('importacoes'), h(async (req, res) => {
   const d = importBody(req.body);
-  const r = await pool.query(`update imports set ref=$1,fornecedor=$2,origem=$3,data=$4,eta=$5,status=$6,itens=$7,custos=$8 where id=$9 and not recebida`,
+  const r = await pool.query(`update imports set ref=$1,fornecedor=$2,origem=$3,data=$4,eta=$5,status=$6,itens=$7,custos=$8 where id=$9 and not recebida and not cancelada`,
     [d.ref, d.fornecedor, d.origem, d.data, d.eta, d.status, JSON.stringify(d.itens), JSON.stringify(d.custos), +req.params.id]);
   if (!r.rowCount) bad('Importação não encontrada ou já recebida.');
   bump(); res.json({ ok: true });
 }));
 app.post('/api/imports/:id/status', auth, need('importacoes'), h(async (req, res) => {
   if (!IMP_ST.includes(req.body.status)) bad('Situação inválida.');
-  await pool.query('update imports set status=$1 where id=$2 and not recebida', [req.body.status, +req.params.id]);
+  await pool.query('update imports set status=$1 where id=$2 and not recebida and not cancelada', [req.body.status, +req.params.id]);
   bump(); res.json({ ok: true });
 }));
 app.post('/api/imports/:id/receive', auth, need('importacoes'), h(async (req, res) => {
   await tx(async c => {
     const { rows } = await c.query('select * from imports where id=$1 for update', [+req.params.id]);
-    const imp = rows[0]; if (!imp) bad('Importação não encontrada.'); if (imp.recebida) bad('Esta importação já foi recebida.');
+    const imp = rows[0]; if (!imp) bad('Importação não encontrada.'); if (imp.recebida) bad('Esta importação já foi recebida.'); if (imp.cancelada) bad('Esta importação foi cancelada.');
     const fob = imp.itens.reduce((a, i) => a + i.qtd * i.fob, 0);
     const extra = IMP_COST.reduce((a, k) => a + (+imp.custos[k] || 0), 0);
     const fator = fob ? (fob + extra) / fob : 1;

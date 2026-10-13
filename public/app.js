@@ -45,8 +45,8 @@ const PERMS = [
   ['dash', 'Dashboard', 'Ver o painel e as vendas de todas as lojas'],
   ['vendas_PY', 'Vender no Paraguay', 'Aba Vendas Paraguay'],
   ['vendas_SP', 'Vender em São Paulo', 'Aba Vendas São Paulo'],
-  ['cancelar', 'Cancelar vendas e compras', 'Desfaz no estoque e fica no histórico'],
-  ['excluir', 'Excluir definitivamente', 'Apaga do histórico vendas e compras canceladas'],
+  ['cancelar', 'Cancelar operações', 'Vendas, compras e importações: desfaz no estoque e fica no histórico'],
+  ['excluir', 'Excluir definitivamente', 'Apaga de vez o que foi cancelado, produtos, cotações e usuários inativos'],
   ['exportar', 'Exportar vendas', 'Baixar o histórico em CSV'],
   ['produtos', 'Cadastrar produtos', 'Criar, editar e excluir produtos'],
   ['compras', 'Compras e entradas', 'Dar entrada de mercadoria no estoque'],
@@ -268,6 +268,11 @@ document.addEventListener('click', async e => {
 });
 // cancel a purchase / permanently erase cancelled sales and purchases
 document.addEventListener('click', async e => {
+  const ci = e.target.closest('[data-canceli]'), di = e.target.closest('[data-deli]'), df = e.target.closest('[data-delfx]'), du = e.target.closest('[data-delu]');
+  if (ci) { if (!armed(ci, 'Confirmar', 'Cancelar')) return; ci.disabled = true; await act(() => api(`/imports/${ci.dataset.canceli}/cancel`, 'POST', {}), 'Importação cancelada.'); }
+  if (di) { if (!armed(di, 'Apagar de vez?', 'Excluir')) return; di.disabled = true; await act(() => api(`/imports/${di.dataset.deli}`, 'DELETE', {}), 'Importação excluída do sistema.'); }
+  if (df) { if (!armed(df, 'Apagar de vez?', 'Excluir')) return; df.disabled = true; await act(() => api(`/cotacoes/${df.dataset.delfx}`, 'DELETE', {}), 'Cotação excluída do histórico.'); }
+  if (du) { if (!armed(du, 'Apagar de vez?', 'Excluir')) return; du.disabled = true; await act(() => api(`/users/${du.dataset.delu}`, 'DELETE', {}), 'Usuário excluído do sistema.'); }
   const cp = e.target.closest('[data-cancelp]'), ds = e.target.closest('[data-dels]'), dp = e.target.closest('[data-delp2]');
   if (cp) { if (!armed(cp, 'Confirmar', 'Cancelar')) return; cp.disabled = true; await act(() => api(`/purchases/${cp.dataset.cancelp}/cancel`, 'POST', {}), 'Compra cancelada e estoque ajustado.'); }
   if (ds) { if (!armed(ds, 'Apagar de vez?', 'Excluir')) return; ds.disabled = true; await act(() => api(`/sales/${ds.dataset.dels}`, 'DELETE', {}), 'Venda excluída do sistema.'); }
@@ -301,7 +306,7 @@ function renderDash() {
   const py = sales.filter(s => s.loja === 'PY'), sp = sales.filter(s => s.loja === 'SP');
   const tot = sum(sales), cost = sales.reduce((a, s) => a + (+s.custoUsd || 0), 0), profit = tot - (conv(cost, 'USD', D) || 0);
   const buys = S.purchases.filter(p => !p.cancelada && p.data >= from && p.data <= t), buyUsd = buys.reduce((a, p) => a + (toUsd(p.total, p.moeda) || 0), 0);
-  const openImp = S.imports.filter(i => !i.recebida);
+  const openImp = S.imports.filter(i => !i.recebida && !i.cancelada);
   const items = sales.reduce((a, s) => a + (s.itens || []).reduce((b, i) => b + i.qtd, 0), 0);
   const k = (cls, label, v, sub) => `<div class="kpi ${cls}"><span class="lbl">${label}</span><span class="v">${v}</span><span class="s">${sub}</span></div>`;
   $('#kpis').innerHTML =
@@ -441,21 +446,21 @@ document.addEventListener('click', async e => {
 function renderImp() {
   const sel = $('#iProd'), v = sel.value; sel.innerHTML = productOptions(); sel.value = v;
   renderImpForm();
-  const open = S.imports.filter(i => !i.recebida), y = today().slice(0, 4);
-  const recvYear = S.imports.filter(i => i.recebida && String(new Date(+i.recebidaEm).getFullYear()) === y);
+  const open = S.imports.filter(i => !i.recebida && !i.cancelada), y = today().slice(0, 4);
+  const recvYear = S.imports.filter(i => i.recebida && !i.cancelada && String(new Date(+i.recebidaEm).getFullYear()) === y);
   const late = open.filter(i => i.eta && i.eta < today()), sum = a => a.reduce((s, i) => s + impCalc(i).total, 0);
   $('#iKpis').innerHTML = `<div class="kpi py"><span class="lbl">Em andamento</span><span class="v">${fm(sum(open), 'USD')}</span><span class="s">${open.length} processos</span></div>`
     + IMP_ST.slice(2).map(st => { const a = open.filter(i => i.status === st); return `<div class="kpi"><span class="lbl">${st}</span><span class="v">${a.length}</span><span class="s">${fm(sum(a), 'USD')}</span></div>`; }).join('')
     + `<div class="kpi"><span class="lbl">Recebidas em ${y}</span><span class="v">${fm(sum(recvYear), 'USD')}</span><span class="s">${recvYear.length} processos</span></div>`
     + `<div class="kpi"><span class="lbl">Atrasadas</span><span class="v" style="color:${late.length ? 'var(--bad)' : 'inherit'}">${late.length}</span><span class="s">previsão vencida</span></div>`;
-  const stPill = i => i.recebida ? '<span class="pill sp">Recebida</span>' : `<select data-ist="${i.id}" style="width:auto;padding:4px 8px" aria-label="Situação">${IMP_ST.map(x => `<option ${x === i.status ? 'selected' : ''}>${x}</option>`).join('')}</select>`;
+  const stPill = i => i.cancelada ? '<span class="pill bad">Cancelada</span>' : i.recebida ? '<span class="pill sp">Recebida</span>' : `<select data-ist="${i.id}" style="width:auto;padding:4px 8px" aria-label="Situação">${IMP_ST.map(x => `<option ${x === i.status ? 'selected' : ''}>${x}</option>`).join('')}</select>`;
   $('#impList').innerHTML = S.imports.length ? `<table><thead><tr><th>Referência</th><th>Fornecedor</th><th>Pedido</th><th>Chegada</th><th>Situação</th><th>Itens</th><th class="r">FOB</th><th class="r">Custo total</th><th></th></tr></thead><tbody>${S.imports.map(i => {
-    const c = impCalc(i), atras = !i.recebida && i.eta && i.eta < today();
-    return `<tr><td><b>${esc(i.ref || '—')}</b></td><td>${esc(i.fornecedor || '—')}${i.origem ? `<div class="hint">${esc(i.origem)}</div>` : ''}</td><td class="num">${fDate(i.data)}</td>
+    const c = impCalc(i), atras = !i.recebida && !i.cancelada && i.eta && i.eta < today();
+    return `<tr class="${i.cancelada ? 'cancel' : ''}"><td><b>${esc(i.ref || '—')}</b></td><td>${esc(i.fornecedor || '—')}${i.origem ? `<div class="hint">${esc(i.origem)}</div>` : ''}</td><td class="num">${fDate(i.data)}</td>
     <td class="num">${i.recebida ? fDate(new Date(+i.recebidaEm).toLocaleDateString('sv-SE')) : (i.eta ? fDate(i.eta) : '—')}${atras ? ' <span class="pill bad">atrasada</span>' : ''}</td>
     <td>${stPill(i)}</td><td style="max-width:280px">${(i.itens || []).map(x => `${x.qtd}× ${esc(x.nome)}`).join(', ')}</td>
     <td class="r num">${fm(c.fob, 'USD')}</td><td class="r num"><b>${fm(c.total, 'USD')}</b>${S.rate ? `<div class="hint">${fm(c.total * S.rate, 'BRL')}</div>` : ''}</td>
-    <td class="r" style="white-space:nowrap">${i.recebida ? '' : `<button class="btn small" data-editi="${i.id}">Editar</button> <button class="btn small" data-recv="${i.id}">Dar entrada no estoque</button>`}</td></tr>`;
+    <td class="r" style="white-space:nowrap">${i.cancelada ? (can('excluir') ? `<button class="btn small danger" data-deli="${i.id}">Excluir</button>` : '') : `${i.recebida ? '' : `<button class="btn small" data-editi="${i.id}">Editar</button> <button class="btn small" data-recv="${i.id}">Dar entrada no estoque</button>`}${can('cancelar') ? ` <button class="btn small danger" data-canceli="${i.id}">Cancelar</button>` : ''}`}</td></tr>`;
   }).join('')}</tbody></table>` : '<div class="empty">Nenhuma importação registrada. Use o formulário acima para abrir o primeiro processo.</div>';
 }
 
@@ -498,7 +503,8 @@ document.addEventListener('click', async e => {
   const ed = e.target.closest('[data-editp]'); if (ed) { fillP(S.products.find(p => p.id === +ed.dataset.editp)); $('#pFormCard').scrollIntoView({ behavior: 'smooth' }); return; }
   const del = e.target.closest('[data-delp]'); if (!del) return;
   if (!armed(del, 'Confirmar', 'Excluir')) return;
-  await act(() => api('/products/' + del.dataset.delp, 'DELETE', {}), 'Produto excluído.');
+  // with the permanent-deletion permission the product is erased from the database, otherwise it is only hidden
+  await act(() => api('/products/' + del.dataset.delp + (can('excluir') ? '/definitivo' : ''), 'DELETE', {}), 'Produto excluído.');
 });
 function renderProd() {
   const f = $('#pFilter').value.trim().toLowerCase(), L = S.products.filter(p => matchP(p, f));
@@ -534,7 +540,7 @@ function renderFx() {
     : st.binanceEm ? `<span class="pill">automático</span> último preço lido às ${fTime(st.binanceEm)}.` : '';
   $('#fxNow').textContent = S.settings ? `Atual: ${fR(S.rate)} por dólar, definida por ${S.settings.atualizadoPor} em ${new Date(+S.settings.atualizadoEm).toLocaleString('pt-BR')}.` : 'Nenhuma cotação definida ainda.';
   const h = S.historico.slice().sort((a, b) => a.d < b.d ? -1 : 1);
-  $('#fxList').innerHTML = h.length ? `<table><thead><tr><th>Data</th><th class="r">US$ 1 em R$</th><th class="r">Variação</th><th>Definida por</th></tr></thead><tbody>${h.slice().reverse().slice(0, 60).map((x, i, a) => { const prev = a[i + 1], d = prev ? (x.v - prev.v) / prev.v * 100 : null; return `<tr><td class="num">${fDate(x.d)}</td><td class="r num">${x.v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}</td><td class="r num" style="color:${d > 0 ? 'var(--bad)' : d < 0 ? 'var(--good)' : 'var(--muted)'}">${d == null ? '—' : (d > 0 ? '+' : '') + d.toFixed(2) + '%'}</td><td>${esc(x.por)}</td></tr>`; }).join('')}</tbody></table>` : '<div class="empty">O histórico começa com a primeira cotação salva.</div>';
+  $('#fxList').innerHTML = h.length ? `<table><thead><tr><th>Data</th><th class="r">US$ 1 em R$</th><th class="r">Variação</th><th>Definida por</th>${can('excluir') ? '<th></th>' : ''}</tr></thead><tbody>${h.slice().reverse().slice(0, 60).map((x, i, a) => { const prev = a[i + 1], d = prev ? (x.v - prev.v) / prev.v * 100 : null; return `<tr><td class="num">${fDate(x.d)}</td><td class="r num">${x.v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}</td><td class="r num" style="color:${d > 0 ? 'var(--bad)' : d < 0 ? 'var(--good)' : 'var(--muted)'}">${d == null ? '—' : (d > 0 ? '+' : '') + d.toFixed(2) + '%'}</td><td>${esc(x.por)}</td>${can('excluir') ? `<td class="r"><button class="btn small danger" data-delfx="${x.d}">Excluir</button></td>` : ''}</tr>`; }).join('')}</tbody></table>` : '<div class="empty">O histórico começa com a primeira cotação salva.</div>';
   const pts = h.slice(-60);
   if (pts.length < 2) { $('#fxChart').innerHTML = '<div class="empty">O gráfico aparece a partir da segunda cotação.</div>'; return; }
   const W = 600, H = 180, L = 50, R = 10, T = 12, B = 22, mn = Math.min(...pts.map(p => p.v)), mx = Math.max(...pts.map(p => p.v)), pad = (mx - mn || mx * 0.01) * 0.15, lo = mn - pad, hi = mx + pad;
@@ -761,7 +767,7 @@ function renderUsers() {
     const mine = ms.filter(x => x.vendedorId === o.id), v = mine.reduce((a, x) => a + (saleUsd(x) || 0), 0);
     return `<tr><td>${esc(o.nome)}${o.id === S.me.id ? ' <span class="pill">você</span>' : ''}</td><td class="num">${esc(o.login)}</td><td>${o.papel === 'supervisor' ? 'Supervisor' : 'Vendedor'}</td><td>${permTags(o)}</td><td class="num">${esc(o.telefone || '—')}</td>
     <td class="r num">${fm(v, 'USD')}<div class="hint">${mine.length} vendas</div></td>
-    <td>${o.ativo === false ? '<span class="pill bad">inativo</span>' : '<span class="pill">ativo</span>'}</td><td class="r" style="white-space:nowrap"><button class="btn small" data-editu="${o.id}">Editar</button>${o.id !== S.me.id ? ` <button class="btn small" data-toggleu="${o.id}">${o.ativo === false ? 'Reativar' : 'Desativar'}</button>` : ''}</td></tr>`;
+    <td>${o.ativo === false ? '<span class="pill bad">inativo</span>' : '<span class="pill">ativo</span>'}</td><td class="r" style="white-space:nowrap"><button class="btn small" data-editu="${o.id}">Editar</button>${o.id !== S.me.id ? ` <button class="btn small" data-toggleu="${o.id}">${o.ativo === false ? 'Reativar' : 'Desativar'}</button>${o.ativo === false && can('excluir') ? ` <button class="btn small danger" data-delu="${o.id}">Excluir</button>` : ''}` : ''}</td></tr>`;
   }).join('')}</tbody></table>`;
 }
 

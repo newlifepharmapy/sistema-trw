@@ -89,6 +89,25 @@ function client() {
   assert((await ana(`/api/purchases/${pur.id}`, 'DELETE', {})).status === 200, 'compra cancelada excluída');
   dd = (await adm('/api/data')).data;
   assert(!dd.sales.some(x => x.id === s.data.sale.id) && !dd.purchases.some(x => x.id === pur.id), 'registros sumiram do sistema');
+  // imports, products, rates and users
+  dd = (await adm('/api/data')).data;
+  const imp = dd.imports[0], pyBefore = dd.products[0].estoque.PY;
+  assert((await ana(`/api/imports/${imp.id}`, 'DELETE', {})).status === 400, 'importação ativa não pode ser excluída');
+  assert((await adm(`/api/imports/${imp.id}/cancel`, 'POST', {})).status === 200, 'importação recebida cancelada');
+  dd = (await adm('/api/data')).data;
+  assert(dd.products[0].estoque.PY === pyBefore - 100 && dd.imports.find(x => x.id === imp.id).status === 'Cancelada', 'cancelar importação recebida tira 100 do estoque PY e fica no histórico');
+  assert((await ana(`/api/imports/${imp.id}`, 'DELETE', {})).status === 200, 'importação cancelada excluída');
+  assert((await ana(`/api/cotacoes/${dd.historico[0].d}`, 'DELETE', {})).status === 200, 'cotação excluída do histórico');
+  const maria = dd.users.find(u => u.login === 'maria');
+  assert((await ana(`/api/users/${maria.id}`, 'DELETE', {})).status === 403, 'excluir usuário exige também a permissão de usuários');
+  assert((await adm(`/api/users/${gid}`, 'PUT', { nome: 'Ana Caixa', login: 'ana', papel: 'vendedor', permissoes: ['vendas_PY', 'vendas_SP', 'excluir', 'usuarios'] })).status === 200, 'ana recebe usuários');
+  assert((await ana(`/api/users/${maria.id}`, 'DELETE', {})).status === 400, 'usuário ativo não pode ser excluído');
+  await adm(`/api/users/${maria.id}/toggle`, 'POST', {});
+  assert((await ana(`/api/users/${maria.id}`, 'DELETE', {})).status === 200, 'usuário inativo excluído');
+  const np = await adm('/api/products', 'POST', { nome: 'Produto apagar' });
+  assert((await ana(`/api/products/${np.data.id}/definitivo`, 'DELETE', {})).status === 200, 'produto apagado de vez');
+  dd = (await adm('/api/data')).data;
+  assert(!dd.imports.some(x => x.id === imp.id) && !dd.users.some(u => u.id === maria.id) && !dd.products.some(p => p.id === np.data.id), 'tudo sumiu do sistema');
   const form = await fetch(BASE + '/api/cotacao', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'valor=1' });
   assert(form.status === 415, 'bloqueia envio de formulário de outro site');
   console.log('\nTodos os testes passaram.');

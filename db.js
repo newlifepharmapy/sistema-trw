@@ -107,6 +107,7 @@ alter table purchases add column if not exists cancelada boolean not null defaul
 alter table purchases add column if not exists cancelada_por text;
 alter table purchases add column if not exists cancelada_em bigint;
 
+
 create table if not exists imports (
   id serial primary key,
   ref text not null default '',
@@ -124,6 +125,9 @@ create table if not exists imports (
   ts bigint not null,
   criado_por text not null
 );
+alter table imports add column if not exists cancelada boolean not null default false;
+alter table imports add column if not exists cancelada_por text;
+alter table imports add column if not exists cancelada_em bigint;
 `;
 
 async function migrate() {
