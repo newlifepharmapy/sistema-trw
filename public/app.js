@@ -636,6 +636,9 @@ document.addEventListener('click', async e => {
   await act(() => api('/products/' + del.dataset.delp + (can('excluir') ? '/definitivo' : ''), 'DELETE', {}), 'Produto excluído.');
 });
 function renderProd() {
+  // the code of the most recently registered product, as a hint for the next one
+  const last = S.products.filter(p => p.codigo).sort((a, b) => b.id - a.id)[0];
+  $('#pCode').placeholder = last ? 'Último: ' + last.codigo : 'ex.: DIP500';
   const f = $('#pFilter').value.trim().toLowerCase(), L = S.products.filter(p => matchP(p, f));
   $('#prodList').innerHTML = L.length ? `<table><thead><tr><th>Código</th><th>Produto</th><th class="r">Custo</th><th class="r">Preço US$</th><th class="r">Preço R$</th><th class="r">Margem</th><th class="r">PY</th><th class="r">BR</th>${can('produtos') ? '<th></th>' : ''}</tr></thead><tbody>${L.map(p => {
     const m = +p.precoUsd ? Math.round((p.precoUsd - (+p.custo || 0)) / p.precoUsd * 100) : null;
