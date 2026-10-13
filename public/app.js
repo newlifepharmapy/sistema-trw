@@ -574,9 +574,11 @@ function notaText(s) {
   L.push(sep);
   const items = (s.itens || []).reduce((a, i) => a + i.qtd, 0);
   if (s.frete) { L.push(padL('Subtotal ' + nMoney(s.subtotal, s.moeda), NW)); L.push(padR(s.frete.freteiro ? 'Freteiro: ' + s.frete.freteiro : '', 40) + padL(`Frete ${nNum(s.frete.pct, 2).replace(/,00$/, '')}% ` + nMoney(s.frete.valor, s.moeda), NW - 40)); }
-  L.push(padR(`Itens: ${nNum(items, items % 1 ? 2 : 0)}`, 30) + padL('TOTAL ' + nMoney(s.total, s.moeda), NW - 30));
-  L.push(padR(s.pagamento ? 'Pagamento: ' + s.pagamento : '', 40) + padL(saleIn(s, o) == null ? '' : 'Equivale a ' + nMoney(saleIn(s, o), o), NW - 40));
-  if (+s.cotacao) L.push(padL('Cambio do dia: US$ 1 = R$ ' + nNum(s.cotacao, 4).replace(/0{1,2}$/, ''), NW));
+  // every note shows the same three lines, whatever the store or the currency of the sale
+  const rate = +s.cotacao ? nNum(s.cotacao, 4).replace(/0{1,2}$/, '') : '—', vIn = c => saleIn(s, c) == null ? '—' : nMoney(saleIn(s, c), c);
+  L.push(padR(`Itens: ${nNum(items, items % 1 ? 2 : 0)}`, 40) + padL('Valor total em US$: ' + vIn('USD'), NW - 40));
+  L.push(padR(s.pagamento ? 'Pagamento: ' + s.pagamento : '', 40) + padL('Valor total em R$: ' + vIn('BRL'), NW - 40));
+  L.push(padL('Cambio do dia: R$ ' + rate, NW));
   L.push(dbl);
   if (!buy) (cfg.rodape ? wrap(cfg.rodape, NW) : ['Obrigado pela preferencia!']).forEach(x => L.push(center(x)));
   L.push(center(buy ? 'Documento interno de entrada de estoque' : 'Documento sem valor fiscal'));
@@ -625,9 +627,10 @@ function notaImgLines(s) {
   });
   L.push({ hr: 1 });
   if (s.frete) { L.push(...lr('Subtotal', nMoney(s.subtotal, s.moeda)).map(t => ({ t }))); L.push(...lr('Frete ' + nNum(s.frete.pct, 2).replace(/,00$/, '') + '%' + (s.frete.freteiro ? ' · ' + s.frete.freteiro : ''), nMoney(s.frete.valor, s.moeda)).map(t => ({ t }))); }
-  L.push(...lr('TOTAL', nMoney(s.total, s.moeda)).map(t => ({ t, b: 1, big: 1 })));
-  if (saleIn(s, o) != null) L.push(...lr('Equivale a', nMoney(saleIn(s, o), o)).map(t => ({ t })));
-  if (+s.cotacao) L.push(...lr('Câmbio do dia', 'US$ 1 = R$ ' + nNum(s.cotacao, 4).replace(/0{1,2}$/, '')).map(t => ({ t, m: 1 })));
+  const vIn = c => saleIn(s, c) == null ? '—' : nMoney(saleIn(s, c), c);
+  L.push(...lr('Valor total em US$', vIn('USD')).map(t => ({ t, b: 1, big: 1 })));
+  L.push(...lr('Valor total em R$', vIn('BRL')).map(t => ({ t, b: 1, big: 1 })));
+  L.push(...lr('Câmbio do dia', +s.cotacao ? 'R$ ' + nNum(s.cotacao, 4).replace(/0{1,2}$/, '') : '—').map(t => ({ t })));
   if (s.pagamento) L.push(...lr('Pagamento', s.pagamento).map(t => ({ t })));
   L.push({ hr: 2 });
   if (!buy) (cfg.rodape ? w(cfg.rodape) : ['Obrigado pela preferência!']).forEach(x => L.push({ t: c(x) }));
