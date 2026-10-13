@@ -45,7 +45,8 @@ const PERMS = [
   ['dash', 'Dashboard', 'Ver o painel e as vendas de todas as lojas'],
   ['vendas_PY', 'Vender no Paraguay', 'Aba Vendas Paraguay'],
   ['vendas_SP', 'Vender em São Paulo', 'Aba Vendas São Paulo'],
-  ['cancelar', 'Cancelar vendas', 'Devolve os produtos ao estoque'],
+  ['cancelar', 'Cancelar vendas e compras', 'Desfaz no estoque e fica no histórico'],
+  ['excluir', 'Excluir definitivamente', 'Apaga do histórico vendas e compras canceladas'],
   ['exportar', 'Exportar vendas', 'Baixar o histórico em CSV'],
   ['produtos', 'Cadastrar produtos', 'Criar, editar e excluir produtos'],
   ['compras', 'Compras e entradas', 'Dar entrada de mercadoria no estoque'],
@@ -53,7 +54,7 @@ const PERMS = [
   ['cambio', 'Cotação do dólar', 'Atualizar a cotação do dia'],
   ['usuarios', 'Usuários e permissões', 'Cadastrar usuários e mudar permissões'],
 ];
-const PRESET = { supervisor: PERMS.map(p => p[0]), vendedor: ['vendas_PY'] };
+const PRESET = { supervisor: PERMS.map(p => p[0]).filter(p => p !== 'excluir'), vendedor: ['vendas_PY'] };
 const can = p => !!(S.me && (S.me.permissoes || []).includes(p));
 const canStore = l => can('vendas_' + l);
 const TAB_PERM = { dash: 'dash', PY: 'vendas_PY', SP: 'vendas_SP', buy: 'compras', imp: 'importacoes', fx: 'cambio', users: 'usuarios', nota: 'usuarios' };
@@ -256,7 +257,7 @@ async function finishSale(l) {
 function saleRow(s, opts = {}) {
   const itens = (s.itens || []).map(i => `${i.qtd}× ${esc(i.nome)}`).join(', ');
   const o = s.moeda === 'USD' ? 'BRL' : 'USD';
-  const actn = `<span style="white-space:nowrap"><button class="btn small" data-print="${s.id}" title="Imprimir nota">Imprimir</button> <button class="btn small" data-wa="${s.id}" title="Enviar nota pelo WhatsApp">WhatsApp</button>${can('cancelar') && !s.cancelada ? ` <button class="btn small danger" data-cancel="${s.id}">Cancelar</button>` : (s.cancelada ? ' <span class="pill bad">cancelada</span>' : '')}</span>`;
+  const actn = `<span style="white-space:nowrap"><button class="btn small" data-print="${s.id}" title="Imprimir nota">Imprimir</button> <button class="btn small" data-wa="${s.id}" title="Enviar nota pelo WhatsApp">WhatsApp</button>${can('cancelar') && !s.cancelada ? ` <button class="btn small danger" data-cancel="${s.id}">Cancelar</button>` : (s.cancelada ? ' <span class="pill bad">cancelada</span>' + (can('excluir') ? ` <button class="btn small danger" data-dels="${s.id}">Excluir</button>` : '') : '')}</span>`;
   return `<tr class="${s.cancelada ? 'cancel' : ''}">${opts.date ? `<td class="num">${fDate(s.data)}</td>` : ''}<td class="num">${fTime(s.ts)}</td>${opts.loja ? `<td><span class="pill ${s.loja.toLowerCase()}">${s.loja}</span></td>` : ''}<td style="max-width:340px">${itens}${s.cliente ? `<div class="hint">${esc(s.cliente)}</div>` : ''}</td><td>${esc(s.vendedorNome)}</td><td>${esc(s.pagamento)}</td><td class="r num"><b>${fm(s.total, s.moeda)}</b><div class="hint">${fm(saleIn(s, o), o)}</div>${+s.cotacao ? `<div class="hint">câmbio ${fRate(s.cotacao)}</div>` : ''}</td><td class="r">${actn}</td></tr>`;
 }
 const saleHead = (opts = {}) => `<thead><tr>${opts.date ? '<th>Data</th>' : ''}<th>Hora</th>${opts.loja ? '<th>Loja</th>' : ''}<th>Itens</th><th>Vendedor</th><th>Pagamento</th><th class="r">Valor</th><th></th></tr></thead>`;
@@ -264,6 +265,13 @@ document.addEventListener('click', async e => {
   const b = e.target.closest('[data-cancel]'); if (!b || !can('cancelar')) return;
   if (!armed(b, 'Confirmar', 'Cancelar')) return;
   b.disabled = true; await act(() => api(`/sales/${b.dataset.cancel}/cancel`, 'POST', {}), 'Venda cancelada e estoque devolvido.');
+});
+// cancel a purchase / permanently erase cancelled sales and purchases
+document.addEventListener('click', async e => {
+  const cp = e.target.closest('[data-cancelp]'), ds = e.target.closest('[data-dels]'), dp = e.target.closest('[data-delp2]');
+  if (cp) { if (!armed(cp, 'Confirmar', 'Cancelar')) return; cp.disabled = true; await act(() => api(`/purchases/${cp.dataset.cancelp}/cancel`, 'POST', {}), 'Compra cancelada e estoque ajustado.'); }
+  if (ds) { if (!armed(ds, 'Apagar de vez?', 'Excluir')) return; ds.disabled = true; await act(() => api(`/sales/${ds.dataset.dels}`, 'DELETE', {}), 'Venda excluída do sistema.'); }
+  if (dp) { if (!armed(dp, 'Apagar de vez?', 'Excluir')) return; dp.disabled = true; await act(() => api(`/purchases/${dp.dataset.delp2}`, 'DELETE', {}), 'Compra excluída do sistema.'); }
 });
 function renderSaleData(l) {
   if (S.carts[l].items.length) renderTotals(l);
@@ -292,7 +300,7 @@ function renderDash() {
   const sum = (arr, c = D) => arr.reduce((a, s) => a + (saleIn(s, c) || 0), 0);
   const py = sales.filter(s => s.loja === 'PY'), sp = sales.filter(s => s.loja === 'SP');
   const tot = sum(sales), cost = sales.reduce((a, s) => a + (+s.custoUsd || 0), 0), profit = tot - (conv(cost, 'USD', D) || 0);
-  const buys = S.purchases.filter(p => p.data >= from && p.data <= t), buyUsd = buys.reduce((a, p) => a + (toUsd(p.total, p.moeda) || 0), 0);
+  const buys = S.purchases.filter(p => !p.cancelada && p.data >= from && p.data <= t), buyUsd = buys.reduce((a, p) => a + (toUsd(p.total, p.moeda) || 0), 0);
   const openImp = S.imports.filter(i => !i.recebida);
   const items = sales.reduce((a, s) => a + (s.itens || []).reduce((b, i) => b + i.qtd, 0), 0);
   const k = (cls, label, v, sub) => `<div class="kpi ${cls}"><span class="lbl">${label}</span><span class="v">${v}</span><span class="s">${sub}</span></div>`;
@@ -385,7 +393,7 @@ function renderBuy() {
   const sel = $('#bProd'), v = sel.value; sel.innerHTML = productOptions(); sel.value = v;
   renderBuyItems();
   const L = S.purchases.slice(0, 200);
-  $('#buyList').innerHTML = L.length ? `<table><thead><tr><th>Data</th><th>Fornecedor</th><th>Destino</th><th>Itens</th><th>Frete</th><th>Registrado por</th><th class="r">Total</th><th></th></tr></thead><tbody>${L.map(p => { const o = p.moeda === 'USD' ? 'BRL' : 'USD'; return `<tr><td class="num">${fDate(p.data)}</td><td>${esc(p.fornecedor || '—')}</td><td><span class="pill ${p.loja.toLowerCase()}">${p.loja}</span></td><td>${(p.itens || []).map(i => `${i.qtd}× ${esc(i.nome)}`).join(', ')}</td><td>${p.freteiro || +p.fretePct ? `${esc(p.freteiro || '—')}<div class="hint num">${+p.fretePct || 0}% · ${fm(+p.freteValor || 0, p.moeda)}</div>` : '—'}</td><td>${esc(p.criadoPor)}</td><td class="r num"><b>${fm(p.total, p.moeda)}</b><div class="hint">${fm(conv(p.total, p.moeda, o), o)}</div></td><td class="r" style="white-space:nowrap"><button class="btn small" data-printp="${p.id}">Imprimir</button> <button class="btn small" data-wap="${p.id}">WhatsApp</button></td></tr>`; }).join('')}</tbody></table>` : '<div class="empty">Nenhuma entrada registrada.</div>';
+  $('#buyList').innerHTML = L.length ? `<table><thead><tr><th>Data</th><th>Fornecedor</th><th>Destino</th><th>Itens</th><th>Frete</th><th>Registrado por</th><th class="r">Total</th><th></th></tr></thead><tbody>${L.map(p => { const o = p.moeda === 'USD' ? 'BRL' : 'USD'; return `<tr class="${p.cancelada ? 'cancel' : ''}"><td class="num">${fDate(p.data)}</td><td>${esc(p.fornecedor || '—')}</td><td><span class="pill ${p.loja.toLowerCase()}">${p.loja}</span></td><td>${(p.itens || []).map(i => `${i.qtd}× ${esc(i.nome)}`).join(', ')}</td><td>${p.freteiro || +p.fretePct ? `${esc(p.freteiro || '—')}<div class="hint num">${+p.fretePct || 0}% · ${fm(+p.freteValor || 0, p.moeda)}</div>` : '—'}</td><td>${esc(p.criadoPor)}</td><td class="r num"><b>${fm(p.total, p.moeda)}</b><div class="hint">${fm(conv(p.total, p.moeda, o), o)}</div></td><td class="r" style="white-space:nowrap"><button class="btn small" data-printp="${p.id}">Imprimir</button> <button class="btn small" data-wap="${p.id}">WhatsApp</button>${p.cancelada ? ' <span class="pill bad">cancelada</span>' + (can('excluir') ? ` <button class="btn small danger" data-delp2="${p.id}">Excluir</button>` : '') : can('cancelar') ? ` <button class="btn small danger" data-cancelp="${p.id}">Cancelar</button>` : ''}</td></tr>`; }).join('')}</tbody></table>` : '<div class="empty">Nenhuma entrada registrada.</div>';
 }
 
 /* ---------- imports ---------- */

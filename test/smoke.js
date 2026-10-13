@@ -73,6 +73,22 @@ function client() {
     await adm('/api/cotacao', 'POST', { valor: 5.9 });
     assert((await adm('/api/data')).data.settings.auto === false, 'cotação manual desliga o automático');
   }
+  // cancel a purchase, then permanently delete cancelled records
+  assert(!(await adm('/api/me')).data.user.permissoes.includes('excluir'), 'supervisor não recebe a exclusão definitiva por padrão');
+  let dd = (await adm('/api/data')).data;
+  const pur = dd.purchases[0], spBefore = dd.products[0].estoque.SP;
+  assert((await adm(`/api/purchases/${pur.id}/cancel`, 'POST', {})).status === 200, 'compra cancelada');
+  dd = (await adm('/api/data')).data;
+  assert(dd.purchases.find(x => x.id === pur.id).cancelada && dd.products[0].estoque.SP === spBefore - 4, 'compra cancelada fica no histórico e tira 4 do estoque SP');
+  assert((await adm(`/api/purchases/${pur.id}`, 'DELETE', {})).status === 403, 'sem a permissão ninguém exclui');
+  const gid = (await adm('/api/data')).data.users.find(u => u.login === 'ana').id;
+  await adm(`/api/users/${gid}`, 'PUT', { nome: 'Ana Caixa', login: 'ana', papel: 'vendedor', permissoes: ['vendas_PY', 'vendas_SP', 'excluir'] });
+  const live = await adm('/api/sales', 'POST', { loja: 'PY', moeda: 'USD', pagamento: 'USDT', itens: [{ nome: 'x', qtd: 1, preco: 1 }] });
+  assert((await ana(`/api/sales/${live.data.sale.id}`, 'DELETE', {})).status === 400, 'venda ativa não pode ser excluída');
+  assert((await ana(`/api/sales/${s.data.sale.id}`, 'DELETE', {})).status === 200, 'venda cancelada excluída');
+  assert((await ana(`/api/purchases/${pur.id}`, 'DELETE', {})).status === 200, 'compra cancelada excluída');
+  dd = (await adm('/api/data')).data;
+  assert(!dd.sales.some(x => x.id === s.data.sale.id) && !dd.purchases.some(x => x.id === pur.id), 'registros sumiram do sistema');
   const form = await fetch(BASE + '/api/cotacao', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'valor=1' });
   assert(form.status === 415, 'bloqueia envio de formulário de outro site');
   console.log('\nTodos os testes passaram.');

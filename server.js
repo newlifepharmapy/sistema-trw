@@ -82,9 +82,10 @@ async function loadUser(req, res, next) {
 }
 const auth = h(loadUser);
 // permissions: each user has a list chosen by whoever manages users; users saved before this existed get the defaults of their role
-const PERMS = ['dash', 'vendas_PY', 'vendas_SP', 'cancelar', 'exportar', 'produtos', 'compras', 'importacoes', 'cambio', 'usuarios'];
+const PERMS = ['dash', 'vendas_PY', 'vendas_SP', 'cancelar', 'excluir', 'exportar', 'produtos', 'compras', 'importacoes', 'cambio', 'usuarios'];
+// permanent deletion is never part of a default: a supervisor has to switch it on for the person
 function defaultPerms(papel, loja) {
-  if (papel === 'supervisor') return [...PERMS];
+  if (papel === 'supervisor') return PERMS.filter(p => p !== 'excluir');
   return loja === 'ambas' ? ['vendas_PY', 'vendas_SP'] : ['vendas_' + (loja === 'SP' ? 'SP' : 'PY')];
 }
 const perms = u => (Array.isArray(u.permissoes) ? u.permissoes.filter(p => PERMS.includes(p)) : defaultPerms(u.papel, u.loja));
@@ -95,7 +96,7 @@ const canStore = (u, l) => has(u, 'vendas_' + l);
 const pubUser = u => ({ id: u.id, login: u.login, nome: u.nome, papel: u.papel, loja: u.loja, telefone: u.telefone, documento: u.documento, comissao: u.comissao, ativo: u.ativo, permissoes: perms(u) });
 const mapProduct = p => ({ id: p.id, codigo: p.codigo, nome: p.nome, lote: p.lote, validade: p.validade || '', custo: p.custo, precoUsd: p.preco_usd, precoBrl: p.preco_brl, estoque: { PY: p.estoque_py, SP: p.estoque_sp } });
 const mapSale = s => ({ id: s.id, loja: s.loja, data: s.data, ts: s.ts, moeda: s.moeda, total: s.total, cotacao: s.cotacao, pagamento: s.pagamento, cliente: s.cliente, itens: s.itens, custoUsd: s.custo_usd, vendedorId: s.vendedor_id, vendedorNome: s.vendedor_nome, cancelada: s.cancelada, canceladaPor: s.cancelada_por });
-const mapPurchase = p => ({ id: p.id, data: p.data, ts: p.ts, fornecedor: p.fornecedor, loja: p.loja, moeda: p.moeda, itens: p.itens, subtotal: p.subtotal, fretePct: p.frete_pct, freteValor: p.frete_valor, freteiro: p.freteiro, total: p.total, cotacao: p.cotacao, criadoPor: p.criado_por });
+const mapPurchase = p => ({ id: p.id, data: p.data, ts: p.ts, fornecedor: p.fornecedor, loja: p.loja, moeda: p.moeda, itens: p.itens, subtotal: p.subtotal, fretePct: p.frete_pct, freteValor: p.frete_valor, freteiro: p.freteiro, total: p.total, cotacao: p.cotacao, criadoPor: p.criado_por, cancelada: p.cancelada, canceladaPor: p.cancelada_por });
 const mapImport = i => ({ id: i.id, ref: i.ref, fornecedor: i.fornecedor, origem: i.origem, data: i.data, eta: i.eta || '', status: i.status, itens: i.itens, custos: i.custos, recebida: i.recebida, recebidaEm: i.recebida_em, recebidaPor: i.recebida_por, custoTotal: i.custo_total, ts: i.ts, criadoPor: i.criado_por });
 
 async function currentRate(c = pool) {
@@ -349,6 +350,27 @@ app.post('/api/sales/:id/cancel', auth, need('cancelar'), h(async (req, res) => 
     for (const i of s.itens) if (i.pid) await c.query(`update products set ${col} = ${col} + $1 where id=$2`, [i.qtd, i.pid]);
     await c.query('update sales set cancelada=true, cancelada_por=$1, cancelada_em=$2 where id=$3', [req.user.nome, Date.now(), s.id]);
   });
+  bump(); res.json({ ok: true });
+}));
+// only cancelled records can be erased: their stock was already given back when they were cancelled
+app.delete('/api/sales/:id', auth, need('excluir'), h(async (req, res) => {
+  const r = await pool.query('delete from sales where id=$1 and cancelada', [+req.params.id]);
+  if (!r.rowCount) bad('Só é possível excluir vendas canceladas. Cancele a venda antes.');
+  bump(); res.json({ ok: true });
+}));
+app.post('/api/purchases/:id/cancel', auth, need('cancelar'), need('compras'), h(async (req, res) => {
+  await tx(async c => {
+    const { rows } = await c.query('select * from purchases where id=$1 for update', [+req.params.id]);
+    const p = rows[0]; if (!p) bad('Entrada não encontrada.'); if (p.cancelada) bad('Esta entrada já foi cancelada.');
+    const col = p.loja === 'PY' ? 'estoque_py' : 'estoque_sp';
+    for (const i of p.itens) if (i.pid) await c.query(`update products set ${col} = ${col} - $1 where id=$2`, [i.qtd, i.pid]);
+    await c.query('update purchases set cancelada=true, cancelada_por=$1, cancelada_em=$2 where id=$3', [req.user.nome, Date.now(), p.id]);
+  });
+  bump(); res.json({ ok: true });
+}));
+app.delete('/api/purchases/:id', auth, need('excluir'), h(async (req, res) => {
+  const r = await pool.query('delete from purchases where id=$1 and cancelada', [+req.params.id]);
+  if (!r.rowCount) bad('Só é possível excluir compras canceladas. Cancele a compra antes.');
   bump(); res.json({ ok: true });
 }));
 
