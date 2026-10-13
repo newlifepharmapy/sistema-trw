@@ -1,0 +1,15 @@
+{
+  "name": "TRW Gestão Comercial",
+  "short_name": "TRW",
+  "description": "Vendas, estoque, compras e importações · Paraguay e São Paulo",
+  "lang": "pt-BR",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0d2b45",
+  "theme_color": "#0d2b45",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
