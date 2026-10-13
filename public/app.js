@@ -5,10 +5,10 @@ const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const LOJAS = { PY: { nome: 'Paraguay', cur: 'USD' }, SP: { nome: 'São Paulo', cur: 'BRL' } };
 const PAYS = ['PIX / Transf.', 'USDT', 'EFETIVO'];
-const TITLES = { dash: 'Dashboard', PY: 'Vendas Paraguay', SP: 'Vendas São Paulo', hist: 'Histórico de vendas', tab: 'Tabela WhatsApp', stock: 'Estoque total', stPY: 'Estoque Paraguay', stSP: 'Estoque São Paulo', prod: 'Produtos', buy: 'Compras e entradas', imp: 'Importações', fx: 'Câmbio', users: 'Usuários', nota: 'Impressão da nota', bot: 'Bot WhatsApp' };
+const TITLES = { dash: 'Dashboard', PY: 'Vendas Paraguay', SP: 'Vendas São Paulo', hist: 'Histórico de vendas', tab: 'Tabela WhatsApp', stock: 'Estoque total', stPY: 'Estoque Paraguay', stSP: 'Estoque São Paulo', prod: 'Produtos', buy: 'Compras e entradas', trf: 'Transferência PY → SP', imp: 'Importações', fx: 'Câmbio', users: 'Usuários', nota: 'Impressão da nota', bot: 'Bot WhatsApp' };
 const ls = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
 
-const S = { v: null, rate: null, settings: null, historico: [], users: [], products: [], sales: [], purchases: [], imports: [], me: null, tab: null,
+const S = { v: null, rate: null, settings: null, historico: [], users: [], products: [], sales: [], purchases: [], imports: [], transfers: [], trfItems: [], me: null, tab: null,
   period: ls.get('trw_period') || '30', disp: ls.get('trw_disp') || 'USD',
   carts: { PY: { items: [], cur: 'USD', pay: 'EFETIVO' }, SP: { items: [], cur: 'BRL', pay: 'PIX / Transf.' } }, buyItems: [], impItems: [] };
 
@@ -57,8 +57,10 @@ const PERMS = [
 const PRESET = { supervisor: PERMS.map(p => p[0]).filter(p => p !== 'excluir'), vendedor: ['vendas_PY'] };
 const can = p => !!(S.me && (S.me.permissoes || []).includes(p));
 const canStore = l => can('vendas_' + l);
-const TAB_PERM = { dash: 'dash', PY: 'vendas_PY', SP: 'vendas_SP', buy: 'compras', imp: 'importacoes', fx: 'cambio', users: 'usuarios', nota: 'usuarios', bot: 'usuarios' };
+const TAB_PERM = { dash: 'dash', PY: 'vendas_PY', SP: 'vendas_SP', buy: 'compras', trf: 'compras', imp: 'importacoes', fx: 'cambio', users: 'usuarios', nota: 'usuarios', bot: 'usuarios' };
 const stockOf = (p, l) => +(p.estoque?.[l] ?? 0);
+// SP units carry the freight paid to bring them, so their cost can be higher than in PY
+const costOf = (p, l) => +(l === 'SP' && p.custoSp != null ? p.custoSp : p.custo) || 0;
 const daysTo = d => d ? Math.round((new Date(d + 'T12:00:00') - new Date(today() + 'T12:00:00')) / 864e5) : null;
 function valPill(d) {
   if (!d) return '<span class="hint">—</span>';
@@ -117,7 +119,7 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) chec
 function setLive(ok) { $('#live').classList.toggle('off', !ok); $('#live span').textContent = ok ? 'Online' : 'Sem conexão'; }
 async function loadData() {
   const d = await api('/data');
-  Object.assign(S, { v: d.v, settings: d.settings, historico: d.historico, products: d.products, sales: d.sales, purchases: d.purchases, imports: d.imports, users: d.users });
+  Object.assign(S, { v: d.v, settings: d.settings, historico: d.historico, products: d.products, sales: d.sales, purchases: d.purchases, imports: d.imports, users: d.users, transfers: d.transfers || [] });
   S.rate = d.settings && +d.settings.cotacao || null;
   fillDatalists();
   // permissions changed by a supervisor take effect on the next refresh, without logging out
@@ -153,7 +155,7 @@ function refresh() {
   $('#rateWhen').textContent = at ? (isToday ? 'hoje ' + fTime(at) : 'em ' + new Date(+at).toLocaleDateString('pt-BR')) : '';
   $('#rateWhen').className = 'when' + (at && !isToday ? ' pill warn' : '');
   $('#noRate').hidden = !!S.rate;
-  ({ dash: renderDash, PY: () => renderSaleData('PY'), SP: () => renderSaleData('SP'), hist: renderHist, tab: renderTab, buy: renderBuy, imp: renderImp, prod: renderProd, stock: renderStock, stPY: () => renderStore('PY'), stSP: () => renderStore('SP'), fx: renderFx, users: renderUsers, nota: renderNota, bot: renderBot })[S.tab]?.();
+  ({ dash: renderDash, PY: () => renderSaleData('PY'), SP: () => renderSaleData('SP'), hist: renderHist, tab: renderTab, buy: renderBuy, trf: renderTrf, imp: renderImp, prod: renderProd, stock: renderStock, stPY: () => renderStore('PY'), stSP: () => renderStore('SP'), fx: renderFx, users: renderUsers, nota: renderNota, bot: renderBot })[S.tab]?.();
 }
 
 /* ---------- sale panes ---------- */
@@ -278,6 +280,9 @@ document.addEventListener('click', async e => {
   if (di) { if (!armed(di, 'Apagar de vez?', 'Excluir')) return; di.disabled = true; await act(() => api(`/imports/${di.dataset.deli}`, 'DELETE', {}), 'Importação excluída do sistema.'); }
   if (df) { if (!armed(df, 'Apagar de vez?', 'Excluir')) return; df.disabled = true; await act(() => api(`/cotacoes/${df.dataset.delfx}`, 'DELETE', {}), 'Cotação excluída do histórico.'); }
   if (du) { if (!armed(du, 'Apagar de vez?', 'Excluir')) return; du.disabled = true; await act(() => api(`/users/${du.dataset.delu}`, 'DELETE', {}), 'Usuário excluído do sistema.'); }
+  const ct = e.target.closest('[data-cancelt]'), dt = e.target.closest('[data-delt]');
+  if (ct) { if (!armed(ct, 'Confirmar', 'Cancelar')) return; ct.disabled = true; await act(() => api(`/transfers/${ct.dataset.cancelt}/cancel`, 'POST', {}), 'Transferência cancelada. As unidades voltaram ao Paraguay.'); }
+  if (dt) { if (!armed(dt, 'Apagar de vez?', 'Excluir')) return; dt.disabled = true; await act(() => api(`/transfers/${dt.dataset.delt}`, 'DELETE', {}), 'Transferência excluída do sistema.'); }
   const cp = e.target.closest('[data-cancelp]'), ds = e.target.closest('[data-dels]'), dp = e.target.closest('[data-delp2]');
   if (cp) { if (!armed(cp, 'Confirmar', 'Cancelar')) return; cp.disabled = true; await act(() => api(`/purchases/${cp.dataset.cancelp}/cancel`, 'POST', {}), 'Compra cancelada e estoque ajustado.'); }
   if (ds) { if (!armed(ds, 'Apagar de vez?', 'Excluir')) return; ds.disabled = true; await act(() => api(`/sales/${ds.dataset.dels}`, 'DELETE', {}), 'Venda excluída do sistema.'); }
@@ -505,7 +510,7 @@ function groupedRows(L, cols, rowFn, subFn) {
 }
 function renderStock() {
   const tot = l => S.products.reduce((a, p) => a + Math.max(0, stockOf(p, l)), 0);
-  const val = l => S.products.reduce((a, p) => a + Math.max(0, stockOf(p, l)) * (+p.custo || 0), 0);
+  const val = l => S.products.reduce((a, p) => a + Math.max(0, stockOf(p, l)) * costOf(p, l), 0);
   const py = tot('PY'), br = tot('SP'), all = py + br, nf0 = n => n.toLocaleString('pt-BR');
   const k = (cls, head, v, sub) => `<div class="kpi big ${cls}"><span class="lbl hd">${head}</span><span class="v">${v}</span><span class="s">${sub}</span></div>`;
   $('#sKpis').innerHTML = k('', 'Estoque total', nf0(all), `${S.products.length} produtos · custo ${fm(val('PY') + val('SP'), 'USD')}`)
@@ -567,10 +572,10 @@ function buildStorePane(l) {
 function renderStore(l) {
   const cur = LOJAS[l].cur, o = cur === 'USD' ? 'BRL' : 'USD', view = S['stView' + l] || 'com', nf0 = n => n.toLocaleString('pt-BR');
   $$(`#sv-${l} button`).forEach(b => b.setAttribute('aria-pressed', b.dataset.v === view));
-  const qty = p => stockOf(p, l), price = p => priceFor(p, cur), costIn = (p, c) => conv(+p.custo || 0, 'USD', c) || 0;
+  const qty = p => stockOf(p, l), price = p => priceFor(p, cur), costIn = (p, c) => conv(costOf(p, l), 'USD', c) || 0;
   const withStock = S.products.filter(p => qty(p) > 0);
   const units = withStock.reduce((a, p) => a + qty(p), 0);
-  const costUsd = withStock.reduce((a, p) => a + qty(p) * (+p.custo || 0), 0);
+  const costUsd = withStock.reduce((a, p) => a + qty(p) * costOf(p, l), 0);
   const saleCur = withStock.reduce((a, p) => a + qty(p) * price(p), 0), saleUsd = conv(saleCur, cur, 'USD') || 0;
   const expiring = withStock.filter(p => p.validade && daysTo(p.validade) <= 90).length, empty = S.products.filter(p => qty(p) <= 0).length;
   const k = (cls, head, v, sub) => `<div class="kpi ${cls}"><span class="lbl">${head}</span><span class="v">${v}</span><span class="s">${sub}</span></div>`;
@@ -861,6 +866,48 @@ $('#setupForm').onsubmit = async e => {
   catch (err) { $('#sErr').textContent = err.message || 'Não foi possível criar.'; $('#sErr').hidden = false; }
   finally { $('#sGo').disabled = false; }
 };
+/* ---------- transfer Paraguay → São Paulo ---------- */
+$('#trDate').value = today();
+const trfPct = () => Math.max(0, +$('#trFrete').value || 0);
+const trfLeft = p => stockOf(p, 'PY') - S.trfItems.filter(i => i.pid === p.id).reduce((a, i) => a + i.qtd, 0);
+$('#trAdd').onclick = () => {
+  const p = S.products.find(x => x.id === +$('#trProd').value), q = +$('#trQty').value;
+  if (!p) return toast('Escolha um produto com estoque no Paraguay.', true);
+  if (!(q > 0)) return toast('Informe a quantidade.', true);
+  if (q > trfLeft(p)) return toast(`O Paraguay só tem ${trfLeft(p)} un. de ${p.nome}.`, true);
+  const ex = S.trfItems.find(i => i.pid === p.id);
+  if (ex) ex.qtd += q; else S.trfItems.push({ pid: p.id, nome: p.nome, qtd: q, custo: +p.custo || 0 });
+  $('#trQty').value = 1; $('#trProd').value = ''; renderTrf();
+};
+$('#trFrete').oninput = () => renderTrfItems();
+$('#trItems').onclick = e => { const b = e.target.closest('[data-ti]'); if (b) { S.trfItems.splice(+b.dataset.ti, 1); renderTrf(); } };
+function renderTrfItems() {
+  const fp = trfPct();
+  $('#trItems').innerHTML = S.trfItems.map((i, k) => `<tr><td>${esc(i.nome)}</td><td class="r num">${i.qtd}</td><td class="r num">${fm(i.custo, 'USD')}</td><td class="r num"><b>${fm(i.custo * (1 + fp / 100), 'USD')}</b><div class="hint">${fm(conv(i.custo * (1 + fp / 100), 'USD', 'BRL'), 'BRL')}</div></td><td class="r num">${fm(i.qtd * i.custo * (1 + fp / 100), 'USD')}</td><td><button class="x" data-ti="${k}" aria-label="Remover">×</button></td></tr>`).join('')
+    || '<tr><td colspan="6" class="empty">Adicione os produtos que vão do Paraguay para São Paulo.</td></tr>';
+  const sub = S.trfItems.reduce((a, i) => a + i.qtd * i.custo, 0), fv = sub * fp / 100, t = sub + fv, un = S.trfItems.reduce((a, i) => a + i.qtd, 0);
+  $('#trTotal').textContent = S.trfItems.length ? `${fm(t, 'USD')}  ·  ${fm(conv(t, 'USD', 'BRL'), 'BRL')}` : '—';
+  $('#trTotalSub').textContent = S.trfItems.length ? `${un} un. · mercadoria ${fm(sub, 'USD')} + frete ${nNum(fp)}% ${fm(fv, 'USD')} (${fm(conv(fv, 'USD', 'BRL'), 'BRL')})` : '';
+}
+$('#trSave').onclick = async () => {
+  if (!S.trfItems.length) return toast('Adicione pelo menos um produto.', true);
+  $('#trSave').disabled = true;
+  const ok = await act(() => api('/transfers', 'POST', { data: $('#trDate').value, freteiro: $('#trFreteiro').value, fretePct: trfPct(), itens: S.trfItems.map(i => ({ pid: i.pid, qtd: i.qtd })) }), 'Transferência registrada. Estoque movido para São Paulo.');
+  $('#trSave').disabled = false;
+  if (ok) { S.trfItems = []; $('#trFreteiro').value = ''; $('#trFrete').value = ''; renderTrf(); }
+};
+function renderTrf() {
+  const sel = $('#trProd'), v = sel.value, av = S.products.filter(p => trfLeft(p) > 0);
+  if (document.activeElement !== sel) {
+    sel.innerHTML = `<option value="">${av.length ? `Produtos com estoque no Paraguay (${av.length})` : 'Nenhum produto com estoque no Paraguay'}</option>` + av.map(p => `<option value="${p.id}">${esc((p.codigo ? p.codigo + ' · ' : '') + p.nome)}${p.lote ? ' · lote ' + esc(p.lote) : ''} — ${trfLeft(p)} un. no PY</option>`).join('');
+    sel.value = av.some(p => p.id === +v) ? v : '';
+  }
+  renderTrfItems();
+  const L = S.transfers.slice(0, 200);
+  $('#trfList').innerHTML = L.length ? `<table><thead><tr><th>Data</th><th>Itens</th><th>Freteiro</th><th class="r">Frete</th><th>Registrado por</th><th class="r">Total em SP</th><th></th></tr></thead><tbody>${L.map(t => `<tr class="${t.cancelada ? 'cancel' : ''}"><td class="num">${fDate(t.data)}</td><td>${(t.itens || []).map(i => `${i.qtd}× ${esc(i.nome)}`).join(', ')}</td><td>${esc(t.freteiro || '—')}</td><td class="r num">${nNum(+t.fretePct || 0)}%<div class="hint">${fm(+t.freteValor || 0, 'USD')}</div></td><td>${esc(t.criadoPor)}</td><td class="r num"><b>${fm(t.total, 'USD')}</b><div class="hint">${fm(conv(t.total, 'USD', 'BRL'), 'BRL')}</div></td><td class="r" style="white-space:nowrap">${t.cancelada ? '<span class="pill bad">cancelada</span>' + (can('excluir') ? ` <button class="btn small danger" data-delt="${t.id}">Excluir</button>` : '') : can('cancelar') ? `<button class="btn small danger" data-cancelt="${t.id}">Cancelar</button>` : ''}</td></tr>`).join('')}</tbody></table>`
+    : '<div class="empty">Nenhuma transferência registrada.</div>';
+}
+
 /* ---------- WhatsApp bot ---------- */
 // the server keeps the WhatsApp connection; this tab polls its state while it is open
 let botS = null, botTimer = null, botDirty = false;

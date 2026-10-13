@@ -108,6 +108,21 @@ function client() {
   assert((await ana(`/api/products/${np.data.id}/definitivo`, 'DELETE', {})).status === 200, 'produto apagado de vez');
   dd = (await adm('/api/data')).data;
   assert(!dd.imports.some(x => x.id === imp.id) && !dd.users.some(u => u.id === maria.id) && !dd.products.some(p => p.id === np.data.id), 'tudo sumiu do sistema');
+  // transfer Paraguay -> São Paulo with freight on the SP cost
+  const tp = (await adm('/api/products', 'POST', { nome: 'Transf teste', custo: 10, precoUsd: 20, estoque: { PY: 10, SP: 0 } })).data.id;
+  assert((await adm('/api/transfers', 'POST', { itens: [{ pid: tp, qtd: 11 }], fretePct: 10 })).status === 400, 'transferência maior que o estoque PY recusada');
+  const tr = await adm('/api/transfers', 'POST', { itens: [{ pid: tp, qtd: 4 }], fretePct: 10, freteiro: 'João Frete' });
+  assert(tr.status === 200 && tr.data.transfer.total === 44 && tr.data.transfer.freteValor === 4, 'transferência com 10% de frete: 40 + 4');
+  let tpd = (await adm('/api/data')).data.products.find(p => p.id === tp);
+  assert(tpd.estoque.PY === 6 && tpd.estoque.SP === 4 && tpd.custoSp === 11 && tpd.custo === 10, 'estoque passa do PY para SP e o custo em SP leva o frete');
+  const tsale = await adm('/api/sales', 'POST', { loja: 'SP', moeda: 'BRL', pagamento: 'PIX / Transf.', itens: [{ pid: tp, nome: 'Transf teste', qtd: 1, preco: 100 }] });
+  assert(tsale.data.sale.custoUsd === 11, 'venda em SP usa o custo com frete');
+  await adm(`/api/sales/${tsale.data.sale.id}/cancel`, 'POST', {});
+  assert((await adm(`/api/transfers/${tr.data.transfer.id}`, 'DELETE', {})).status === 403, 'excluir transferência exige permissão');
+  assert((await adm(`/api/transfers/${tr.data.transfer.id}/cancel`, 'POST', {})).status === 200, 'transferência cancelada');
+  tpd = (await adm('/api/data')).data;
+  assert(tpd.products.find(p => p.id === tp).estoque.PY === 10 && tpd.products.find(p => p.id === tp).estoque.SP === 0 && tpd.transfers[0].cancelada, 'cancelar devolve ao PY e fica no histórico');
+  assert((await ana(`/api/transfers/${tr.data.transfer.id}`, 'DELETE', {})).status === 200, 'transferência cancelada excluída');
   // whatsapp bot
   process.env.DATABASE_URL ||= 'postgres://localhost/nao-usado';
   const bot = require('../bot');

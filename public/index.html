@@ -67,6 +67,7 @@
         <button data-tab="stSP"><i class="ic flag-br"></i>Estoque São Paulo</button>
         <button data-tab="prod"><i class="ic">◫</i>Produtos</button>
         <button data-tab="buy"><i class="ic">↓</i>Compras e entradas</button>
+        <button data-tab="trf"><i class="ic">⇄</i>Transferência PY → SP</button>
         <button data-tab="imp"><i class="ic">⚓</i>Importações</button>
       </div>
       <div class="nav-g"><span>Administração</span>
@@ -215,6 +216,27 @@
           <div class="row between actions"><div><span class="lbl">Total da entrada</span><div class="num big" id="bTotal">—</div><div class="hint num" id="bTotalSub"></div></div><button class="btn primary" id="bSave">Registrar entrada</button></div>
         </div>
         <div class="card"><h2>Entradas registradas</h2><div class="tablewrap" id="buyList"></div></div>
+      </section>
+
+      <!-- TRANSFER PY -> SP -->
+      <section class="pane" id="pane-trf" hidden>
+        <div class="card">
+          <h2>Nova transferência <span class="row" style="display:inline-flex;gap:6px;vertical-align:middle"><span class="pill py">Paraguay</span>→<span class="pill sp">São Paulo</span></span></h2>
+          <p class="hint">As unidades saem do estoque do Paraguay e entram no de São Paulo. A % do freteiro é somada ao custo de cada produto em São Paulo.</p>
+          <div class="fields frete">
+            <label class="field"><span class="lbl">Freteiro</span><input type="text" id="trFreteiro" placeholder="Nome do freteiro"></label>
+            <label class="field"><span class="lbl">Frete (%)</span><input type="number" id="trFrete" min="0" step="0.01" placeholder="Ex.: 8"></label>
+            <label class="field"><span class="lbl">Data</span><input type="date" id="trDate"></label>
+          </div>
+          <div class="fields additem">
+            <label class="field"><span class="lbl">Produto</span><select id="trProd"></select></label>
+            <label class="field"><span class="lbl">Quantidade</span><input type="number" id="trQty" min="1" value="1"></label>
+            <button class="btn" id="trAdd">Adicionar</button>
+          </div>
+          <div class="tablewrap"><table><thead><tr><th>Produto</th><th class="r">Qtd</th><th class="r">Custo no PY</th><th class="r">Custo em SP (c/ frete)</th><th class="r">Subtotal em SP</th><th></th></tr></thead><tbody id="trItems"></tbody></table></div>
+          <div class="row between actions"><div><span class="lbl">Valor final em São Paulo</span><div class="num big" id="trTotal">—</div><div class="hint num" id="trTotalSub"></div></div><button class="btn primary" id="trSave">Transferir para São Paulo</button></div>
+        </div>
+        <div class="card"><h2>Transferências registradas</h2><div class="tablewrap" id="trfList"></div></div>
       </section>
 
       <!-- IMPORTS -->

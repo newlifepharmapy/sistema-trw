@@ -94,7 +94,8 @@ const need = p => (req, res, next) => (has(req.user, p) ? next() : res.status(40
 const canStore = (u, l) => has(u, 'vendas_' + l);
 
 const pubUser = u => ({ id: u.id, login: u.login, nome: u.nome, papel: u.papel, loja: u.loja, telefone: u.telefone, documento: u.documento, comissao: u.comissao, ativo: u.ativo, permissoes: perms(u) });
-const mapProduct = p => ({ id: p.id, codigo: p.codigo, nome: p.nome, grupo: p.grupo, marca: p.marca, lote: p.lote, validade: p.validade || '', custo: p.custo, precoUsd: p.preco_usd, precoBrl: p.preco_brl, estoque: { PY: p.estoque_py, SP: p.estoque_sp } });
+const mapProduct = p => ({ id: p.id, codigo: p.codigo, nome: p.nome, grupo: p.grupo, marca: p.marca, lote: p.lote, validade: p.validade || '', custo: p.custo, custoSp: p.custo_sp, precoUsd: p.preco_usd, precoBrl: p.preco_brl, estoque: { PY: p.estoque_py, SP: p.estoque_sp } });
+const mapTransfer = t => ({ id: t.id, data: t.data, ts: t.ts, itens: t.itens, subtotal: t.subtotal, fretePct: t.frete_pct, freteValor: t.frete_valor, freteiro: t.freteiro, total: t.total, criadoPor: t.criado_por, cancelada: t.cancelada, canceladaPor: t.cancelada_por });
 const mapSale = s => ({ id: s.id, loja: s.loja, data: s.data, ts: s.ts, moeda: s.moeda, total: s.total, cotacao: s.cotacao, pagamento: s.pagamento, cliente: s.cliente, itens: s.itens, custoUsd: s.custo_usd, vendedorId: s.vendedor_id, vendedorNome: s.vendedor_nome, cancelada: s.cancelada, canceladaPor: s.cancelada_por });
 const mapPurchase = p => ({ id: p.id, data: p.data, ts: p.ts, fornecedor: p.fornecedor, loja: p.loja, moeda: p.moeda, itens: p.itens, subtotal: p.subtotal, fretePct: p.frete_pct, freteValor: p.frete_valor, freteiro: p.freteiro, total: p.total, cotacao: p.cotacao, criadoPor: p.criado_por, cancelada: p.cancelada, canceladaPor: p.cancelada_por });
 const mapImport = i => ({ id: i.id, ref: i.ref, fornecedor: i.fornecedor, origem: i.origem, data: i.data, eta: i.eta || '', status: i.status, itens: i.itens, custos: i.custos, recebida: i.recebida, recebidaEm: i.recebida_em, recebidaPor: i.recebida_por, custoTotal: i.custo_total, ts: i.ts, criadoPor: i.criado_por, cancelada: i.cancelada, canceladaPor: i.cancelada_por });
@@ -194,14 +195,16 @@ app.get('/api/data', auth, h(async (req, res) => {
     purchases: [], imports: [], users: [],
   };
   const none = Promise.resolve({ rows: [] });
-  const [p, i, us] = await Promise.all([
+  const [p, i, us, tr] = await Promise.all([
     has(u, 'compras') ? pool.query('select * from purchases where ts >= $1 order by ts desc', [since]) : none,
     has(u, 'importacoes') || has(u, 'dash') ? pool.query('select * from imports where ts >= $1 or not (recebida or cancelada) order by ts desc', [since]) : none,
     has(u, 'usuarios') ? pool.query('select * from users order by nome') : none,
+    has(u, 'compras') ? pool.query('select * from transfers where ts >= $1 order by ts desc', [since]) : none,
   ]);
   out.purchases = p.rows.map(mapPurchase);
   out.imports = i.rows.map(mapImport);
   out.users = us.rows.map(pubUser);
+  out.transfers = tr.rows.map(mapTransfer);
   res.json(out);
 }));
 
@@ -328,7 +331,7 @@ app.post('/api/sales', auth, h(async (req, res) => {
         const col = loja === 'PY' ? 'estoque_py' : 'estoque_sp';
         const { rows } = await c.query(`update products set ${col} = ${col} - $1 where id=$2 and ativo returning *`, [qtd, +i.pid]);
         const p = rows[0]; if (!p) bad('Produto não encontrado: ' + str(i.nome));
-        custoUsd += qtd * p.custo;
+        custoUsd += qtd * (loja === 'SP' && p.custo_sp != null ? p.custo_sp : p.custo);
         itens.push({ pid: p.id, nome: p.nome, codigo: p.codigo, lote: p.lote, validade: p.validade || '', qtd, preco });
       } else {
         itens.push({ pid: null, nome: str(i.nome, 120) || 'Item avulso', codigo: '', lote: '', validade: '', qtd, preco });
@@ -451,7 +454,7 @@ app.post('/api/purchases', auth, need('compras'), h(async (req, res) => {
     for (const i of itensIn) {
       const qtd = num(i.qtd), custo = r2(Math.max(0, num(i.custo)));
       const custoUsd = r2((moeda === 'USD' ? custo : custo / rate) * (1 + fretePct / 100));
-      const { rows } = await c.query(`update products set ${col} = ${col} + $1, custo = $2 where id=$3 and ativo returning id, nome`, [qtd, custoUsd, +i.pid]);
+      const { rows } = await c.query(`update products set ${col} = ${col} + $1, custo = $2${loja === 'SP' ? ', custo_sp = $2' : ''} where id=$3 and ativo returning id, nome`, [qtd, custoUsd, +i.pid]);
       if (!rows[0]) bad('Produto não encontrado.');
       itens.push({ pid: rows[0].id, nome: rows[0].nome, qtd, custo });
     }
@@ -462,6 +465,48 @@ app.post('/api/purchases', auth, need('compras'), h(async (req, res) => {
     return r.rows[0];
   });
   bump(); res.json({ ok: true, purchase: mapPurchase(row) });
+}));
+
+// ---------- transferências Paraguay → São Paulo ----------
+// the units leave the PY stock and enter the SP stock; the freight % goes on top of their cost in SP
+app.post('/api/transfers', auth, need('compras'), h(async (req, res) => {
+  const b = req.body;
+  const itensIn = Array.isArray(b.itens) ? b.itens.filter(i => num(i.qtd) > 0 && i.pid).slice(0, 300) : [];
+  if (!itensIn.length) bad('Adicione pelo menos um produto.');
+  const fretePct = Math.max(0, num(b.fretePct));
+  if (fretePct > 100) bad('Frete acima de 100%. Confira a porcentagem.');
+  const row = await tx(async c => {
+    const itens = [];
+    for (const i of itensIn) {
+      const qtd = num(i.qtd);
+      const { rows } = await c.query('select * from products where id=$1 and ativo for update', [+i.pid]);
+      const p = rows[0]; if (!p) bad('Produto não encontrado.');
+      if (+p.estoque_py < qtd) bad(`Estoque insuficiente no Paraguay: ${p.nome} tem ${+p.estoque_py} un.`);
+      const custo = r2(p.custo), custoSp = r2(custo * (1 + fretePct / 100));
+      await c.query('update products set estoque_py = estoque_py - $1, estoque_sp = estoque_sp + $1, custo_sp = $2 where id=$3', [qtd, custoSp, p.id]);
+      itens.push({ pid: p.id, nome: p.nome, qtd, custo, custoSp });
+    }
+    const subtotal = r2(itens.reduce((a, i) => a + i.qtd * i.custo, 0)), freteValor = r2(subtotal * fretePct / 100);
+    const r = await c.query(`insert into transfers (data,ts,itens,subtotal,frete_pct,frete_valor,freteiro,total,criado_por) values ($1,$2,$3,$4,$5,$6,$7,$8,$9) returning *`,
+      [isDate(b.data) ? b.data : todayStr(), Date.now(), JSON.stringify(itens), subtotal, fretePct, freteValor, str(b.freteiro), r2(subtotal + freteValor), req.user.nome]);
+    return r.rows[0];
+  });
+  bump(); res.json({ ok: true, transfer: mapTransfer(row) });
+}));
+// cancelling sends the units back from SP to PY and keeps the transfer in the history
+app.post('/api/transfers/:id/cancel', auth, need('cancelar'), need('compras'), h(async (req, res) => {
+  await tx(async c => {
+    const { rows } = await c.query('select * from transfers where id=$1 for update', [+req.params.id]);
+    const t = rows[0]; if (!t) bad('Transferência não encontrada.'); if (t.cancelada) bad('Esta transferência já foi cancelada.');
+    for (const i of t.itens) if (i.pid) await c.query('update products set estoque_sp = estoque_sp - $1, estoque_py = estoque_py + $1 where id=$2', [i.qtd, i.pid]);
+    await c.query('update transfers set cancelada=true, cancelada_por=$1, cancelada_em=$2 where id=$3', [req.user.nome, Date.now(), t.id]);
+  });
+  bump(); res.json({ ok: true });
+}));
+app.delete('/api/transfers/:id', auth, need('excluir'), h(async (req, res) => {
+  const r = await pool.query('delete from transfers where id=$1 and cancelada', [+req.params.id]);
+  if (!r.rowCount) bad('Só é possível excluir transferências canceladas. Cancele antes.');
+  bump(); res.json({ ok: true });
 }));
 
 // ---------- importações ----------

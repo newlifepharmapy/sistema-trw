@@ -70,6 +70,25 @@ create table if not exists products (
 
 alter table products add column if not exists grupo text not null default '';
 alter table products add column if not exists marca text not null default '';
+-- cost of the units in São Paulo, with the freight of the transfer from Paraguay or of the SP purchase
+alter table products add column if not exists custo_sp numeric;
+
+create table if not exists transfers (
+  id serial primary key,
+  data date not null,
+  ts bigint not null,
+  itens jsonb not null,
+  subtotal numeric not null,
+  frete_pct numeric not null default 0,
+  frete_valor numeric not null default 0,
+  freteiro text not null default '',
+  total numeric not null,
+  criado_por text not null,
+  cancelada boolean not null default false,
+  cancelada_por text,
+  cancelada_em bigint
+);
+create index if not exists transfers_ts_idx on transfers (ts desc);
 
 create table if not exists sales (
   id serial primary key,
