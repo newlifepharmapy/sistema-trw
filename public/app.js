@@ -5,7 +5,7 @@ const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const LOJAS = { PY: { nome: 'Paraguay', cur: 'USD' }, SP: { nome: 'São Paulo', cur: 'BRL' } };
 const PAYS = ['PIX / Transf.', 'USDT', 'EFETIVO'];
-const TITLES = { dash: 'Dashboard', PY: 'Vendas Paraguay', SP: 'Vendas São Paulo', hist: 'Histórico de vendas', stock: 'Estoque total', stPY: 'Estoque Paraguay', stSP: 'Estoque São Paulo', prod: 'Produtos', buy: 'Compras e entradas', imp: 'Importações', fx: 'Câmbio', users: 'Usuários', nota: 'Impressão da nota' };
+const TITLES = { dash: 'Dashboard', PY: 'Vendas Paraguay', SP: 'Vendas São Paulo', hist: 'Histórico de vendas', tab: 'Tabela WhatsApp', stock: 'Estoque total', stPY: 'Estoque Paraguay', stSP: 'Estoque São Paulo', prod: 'Produtos', buy: 'Compras e entradas', imp: 'Importações', fx: 'Câmbio', users: 'Usuários', nota: 'Impressão da nota' };
 const ls = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
 
 const S = { v: null, rate: null, settings: null, historico: [], users: [], products: [], sales: [], purchases: [], imports: [], me: null, tab: null,
@@ -152,7 +152,7 @@ function refresh() {
   $('#rateWhen').textContent = at ? (isToday ? 'hoje ' + fTime(at) : 'em ' + new Date(+at).toLocaleDateString('pt-BR')) : '';
   $('#rateWhen').className = 'when' + (at && !isToday ? ' pill warn' : '');
   $('#noRate').hidden = !!S.rate;
-  ({ dash: renderDash, PY: () => renderSaleData('PY'), SP: () => renderSaleData('SP'), hist: renderHist, buy: renderBuy, imp: renderImp, prod: renderProd, stock: renderStock, stPY: () => renderStore('PY'), stSP: () => renderStore('SP'), fx: renderFx, users: renderUsers, nota: renderNota })[S.tab]?.();
+  ({ dash: renderDash, PY: () => renderSaleData('PY'), SP: () => renderSaleData('SP'), hist: renderHist, tab: renderTab, buy: renderBuy, imp: renderImp, prod: renderProd, stock: renderStock, stPY: () => renderStore('PY'), stSP: () => renderStore('SP'), fx: renderFx, users: renderUsers, nota: renderNota })[S.tab]?.();
 }
 
 /* ---------- sale panes ---------- */
@@ -494,6 +494,38 @@ function renderStock() {
   $('#stockList').innerHTML = L.length ? `<table><thead><tr><th>Código</th><th>Produto</th><th>Lote</th><th>Validade</th><th class="r">Total</th><th class="r"><span class="row" style="justify-content:flex-end;gap:6px">${FLAG_PY}PY</span></th><th class="r"><span class="row" style="justify-content:flex-end;gap:6px">${FLAG_BR}BR</span></th></tr></thead><tbody>${L.map(p => `<tr><td class="num">${esc(p.codigo || '')}</td><td>${esc(p.nome)}</td><td class="num">${esc(p.lote || '—')}</td><td style="white-space:nowrap">${valPill(p.validade)}</td><td class="r num"><b>${nf0(stockOf(p, 'PY') + stockOf(p, 'SP'))}</b></td>${cell(stockOf(p, 'PY'))}${cell(stockOf(p, 'SP'))}</tr>`).join('')}</tbody><tfoot><tr><td></td><td>Total</td><td></td><td></td><td class="r num">${sumL(p => stockOf(p, 'PY') + stockOf(p, 'SP'))}</td><td class="r num">${sumL(p => stockOf(p, 'PY'))}</td><td class="r num">${sumL(p => stockOf(p, 'SP'))}</td></tr></tfoot></table>`
     : `<div class="empty">${S.products.length ? 'Nenhum produto encontrado.' : 'Nenhum produto cadastrado ainda.'}</div>`;
 }
+
+/* ---------- price list for WhatsApp ---------- */
+// *text* is bold and _text_ italic on WhatsApp
+const TAB_KEYS = ['tTitle', 'tStock', 'tCode', 'tVal', 'tQty'];
+TAB_KEYS.forEach(id => { const el = $('#' + id), v = ls.get('trw_' + id); if (v != null) { if (el.type === 'checkbox') el.checked = v === '1'; else el.value = v; }
+  el.addEventListener(el.type === 'checkbox' || el.tagName === 'SELECT' ? 'change' : 'input', () => { ls.set('trw_' + id, el.type === 'checkbox' ? (el.checked ? '1' : '0') : el.value); renderTab(); }); });
+$('#tFilter').oninput = renderTab;
+function tabText(cur) {
+  const st = $('#tStock').value, f = $('#tFilter').value.trim().toLowerCase();
+  const qty = p => st === 'PY' || st === 'SP' ? stockOf(p, st) : stockOf(p, 'PY') + stockOf(p, 'SP');
+  const L = S.products.filter(p => matchP(p, f) && (st === 'all' || (st === 'any' ? stockOf(p, 'PY') > 0 || stockOf(p, 'SP') > 0 : stockOf(p, st) > 0)) && priceFor(p, cur) > 0)
+    .sort((a, b) => a.nome.localeCompare(b.nome));
+  const now = new Date(), title = ($('#tTitle').value.trim() || 'TABELA DE PREÇOS').toUpperCase();
+  const out = [`*${title} · ${cur === 'USD' ? 'US$' : 'R$'}*`, `_Atualizada em ${now.toLocaleDateString('pt-BR')} às ${fTime(now)}${S.rate ? ' · Câmbio R$ ' + nNum(S.rate, 4).replace(/0{1,2}$/, '') : ''}_`, ''];
+  if (!L.length) out.push('Nenhum produto neste filtro.');
+  L.forEach(p => {
+    const extra = [$('#tVal').checked && p.validade ? 'val. ' + p.validade.slice(5, 7) + '/' + p.validade.slice(2, 4) : '', $('#tQty').checked ? qty(p) + ' un.' : ''].filter(Boolean).join(' · ');
+    out.push(`▪️ ${$('#tCode').checked && p.codigo ? p.codigo + ' · ' : ''}${p.nome}${extra ? ` (${extra})` : ''} — *${nMoney(priceFor(p, cur), cur)}*`);
+  });
+  out.push('', `_${L.length} produtos · valores sujeitos a alteração_`);
+  return out.join('\n');
+}
+function renderTab() {
+  if (S.tab !== 'tab') return;
+  $('#tUsd').value = tabText('USD'); $('#tBrl').value = tabText('BRL');
+}
+document.addEventListener('click', async e => {
+  const b = e.target.closest('[data-copy]'); if (!b) return;
+  const t = $('#' + b.dataset.copy);
+  try { await navigator.clipboard.writeText(t.value); } catch (err) { t.select(); document.execCommand('copy'); }
+  toast('Tabela copiada. Cole no WhatsApp.');
+});
 
 /* ---------- stock per store ---------- */
 // cost and price are in dollars and converted at the current rate, so these values follow the dollar

@@ -234,3 +234,5 @@ tr.cancel td{color:var(--muted);text-decoration:line-through}
 .search-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,320px);gap:10px;align-items:start}
 .search-row .prod-pick{padding:12px 10px;font-size:.95rem}
 @media (max-width:760px){.search-row{grid-template-columns:1fr}}
+
+.wa-text{width:100%;min-height:420px;margin-top:10px;font-family:var(--f-num);font-size:13px;line-height:1.5;padding:12px;border:1px solid var(--line-2);border-radius:8px;background:var(--surface-2);color:var(--fg);resize:vertical}

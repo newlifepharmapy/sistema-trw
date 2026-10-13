@@ -59,6 +59,7 @@
         <button data-tab="PY"><i class="ic flag-py"></i>Vendas Paraguay</button>
         <button data-tab="SP"><i class="ic flag-br"></i>Vendas São Paulo</button>
         <button data-tab="hist"><i class="ic">≡</i>Histórico de vendas</button>
+        <button data-tab="tab"><i class="ic">✆</i>Tabela WhatsApp</button>
       </div>
       <div class="nav-g"><span>Estoque</span>
         <button data-tab="stock"><i class="ic">▤</i>Estoque total</button>
@@ -136,6 +137,27 @@
         <div class="toolbar"><input type="search" id="sFilter" placeholder="Filtrar por nome, código ou lote"></div>
         <div class="kpis" id="sKpis"></div>
         <div class="card"><div class="tablewrap" id="stockList"></div></div>
+      </section>
+
+      <!-- PRICE LIST FOR WHATSAPP -->
+      <section class="pane" id="pane-tab" hidden>
+        <div class="card">
+          <div class="fields">
+            <label class="field"><span class="lbl">Título</span><input type="text" id="tTitle" placeholder="TABELA DE PREÇOS"></label>
+            <label class="field"><span class="lbl">Produtos</span><select id="tStock"><option value="PY">Com estoque no Paraguay</option><option value="SP">Com estoque em São Paulo</option><option value="any">Com estoque em qualquer loja</option><option value="all">Todos os produtos</option></select></label>
+            <label class="field"><span class="lbl">Filtrar</span><input type="search" id="tFilter" placeholder="Nome, código ou lote"></label>
+          </div>
+          <div class="row wrap" style="gap:18px;margin-top:8px">
+            <label class="check"><input type="checkbox" id="tCode"> Mostrar código</label>
+            <label class="check"><input type="checkbox" id="tVal"> Mostrar validade</label>
+            <label class="check"><input type="checkbox" id="tQty"> Mostrar quantidade em estoque</label>
+          </div>
+          <p class="hint">Os valores seguem a cotação atual e se atualizam sozinhos. Copie e cole no WhatsApp: os asteriscos viram negrito.</p>
+        </div>
+        <div class="grid2">
+          <div class="card"><div class="row between"><h2>Tabela em dólar (US$)</h2><button class="btn primary" data-copy="tUsd">Copiar</button></div><textarea id="tUsd" class="wa-text" readonly></textarea></div>
+          <div class="card"><div class="row between"><h2>Tabela em reais (R$)</h2><button class="btn primary" data-copy="tBrl">Copiar</button></div><textarea id="tBrl" class="wa-text" readonly></textarea></div>
+        </div>
       </section>
 
       <!-- STOCK PER STORE (built by app.js) -->
