@@ -230,3 +230,7 @@ tr.cancel td{color:var(--muted);text-decoration:line-through}
 .btn.wa{background:#1f9d55;border-color:#1f9d55;color:#fff}
 .btn.wa:hover{filter:brightness(1.05)}
 @media (max-width:480px){.done-btns{grid-template-columns:1fr}}
+
+.search-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,320px);gap:10px;align-items:start}
+.search-row .prod-pick{padding:12px 10px;font-size:.95rem}
+@media (max-width:760px){.search-row{grid-template-columns:1fr}}

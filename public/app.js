@@ -161,7 +161,10 @@ function buildSalePane(l) {
   $('#pane-' + l).innerHTML = `
   <div class="sale">
     <div class="card">
-      <div class="search"><input type="text" id="q-${l}" autocomplete="off" placeholder="Código ou nome do produto e Enter"><div class="sugg" id="sg-${l}" hidden></div></div>
+      <div class="search-row">
+        <div class="search"><input type="text" id="q-${l}" autocomplete="off" placeholder="Código ou nome do produto e Enter"><div class="sugg" id="sg-${l}" hidden></div></div>
+        <select id="pl-${l}" class="prod-pick" aria-label="Produtos em estoque"></select>
+      </div>
       <div class="tablewrap"><table class="cart"><thead><tr><th>Produto</th><th class="r">Qtd</th><th class="r">Preço un.</th><th class="r">Subtotal</th><th></th></tr></thead><tbody id="cart-${l}"></tbody></table></div>
       <div class="empty" id="ce-${l}">Digite o código ou o nome do produto e tecle Enter. Se o produto não estiver cadastrado, ele entra como item avulso e você informa o preço.</div>
     </div>
@@ -178,6 +181,7 @@ function buildSalePane(l) {
     <div class="row between"><h2>Vendas de hoje · ${LOJAS[l].nome}</h2><div class="row" id="ts-${l}"></div></div>
     <div class="tablewrap" id="today-${l}"></div>
   </div>`;
+  $('#pl-' + l).onchange = e => { const p = S.products.find(x => x.id === +e.target.value); e.target.value = ''; if (p) { addToCart(l, p); $('#q-' + l).focus(); } };
   const q = $('#q-' + l), sg = $('#sg-' + l); let hits = [], hi = 0;
   const drawSugg = () => {
     const t = q.value.trim().toLowerCase();
@@ -202,7 +206,7 @@ function buildSalePane(l) {
   $('#cur-' + l).onclick = e => {
     const b = e.target.closest('button'); if (!b || b.dataset.c === c.cur) return;
     if (c.items.length && !S.rate) return toast('Defina a cotação do dólar antes de trocar a moeda.', true);
-    c.items.forEach(it => it.preco = r2(conv(it.preco, c.cur, b.dataset.c))); c.cur = b.dataset.c; renderCart(l);
+    c.items.forEach(it => it.preco = r2(conv(it.preco, c.cur, b.dataset.c))); c.cur = b.dataset.c; renderCart(l); fillPick(l);
   };
   $('#pay-' + l).onclick = e => { const b = e.target.closest('button'); if (b) { c.pay = b.dataset.p; renderCart(l); } };
   $('#go-' + l).onclick = () => finishSale(l);
@@ -278,7 +282,14 @@ document.addEventListener('click', async e => {
   if (ds) { if (!armed(ds, 'Apagar de vez?', 'Excluir')) return; ds.disabled = true; await act(() => api(`/sales/${ds.dataset.dels}`, 'DELETE', {}), 'Venda excluída do sistema.'); }
   if (dp) { if (!armed(dp, 'Apagar de vez?', 'Excluir')) return; dp.disabled = true; await act(() => api(`/purchases/${dp.dataset.delp2}`, 'DELETE', {}), 'Compra excluída do sistema.'); }
 });
+// list of every product with stock in this store, to pick without typing
+function fillPick(l) {
+  const sel = $('#pl-' + l); if (!sel || document.activeElement === sel) return;
+  const c = S.carts[l], av = S.products.filter(p => stockOf(p, l) > 0);
+  sel.innerHTML = `<option value="">${av.length ? `Produtos em estoque (${av.length})` : 'Nenhum produto em estoque'}</option>` + av.map(p => `<option value="${p.id}">${esc((p.codigo ? p.codigo + ' · ' : '') + p.nome)}${p.lote ? ' · lote ' + esc(p.lote) : ''} — ${stockOf(p, l)} un. · ${fm(priceFor(p, c.cur), c.cur)}</option>`).join('');
+}
 function renderSaleData(l) {
+  fillPick(l);
   if (S.carts[l].items.length) renderTotals(l);
   const list = S.sales.filter(s => s.loja === l && s.data === today());
   const ok = list.filter(s => !s.cancelada), cur = LOJAS[l].cur, o = cur === 'USD' ? 'BRL' : 'USD', tot = c => ok.reduce((a, s) => a + (saleIn(s, c) || 0), 0);
