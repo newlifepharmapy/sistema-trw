@@ -729,54 +729,24 @@ $('#notaTest').onclick = () => printNota({ id: 123, loja: 'PY', data: today(), t
   itens: [{ nome: 'Dipirona Sodica 500mg c/ 10 comprimidos', lote: 'L2301', validade: '2027-05-31', qtd: 3, preco: 4.5 }, { nome: 'Amoxicilina 500mg caixa com 21 capsulas', lote: 'AMX99', validade: '2026-12-31', qtd: 2, preco: 22 }] });
 
 /* ---------- nota as image for WhatsApp ---------- */
-const IW = 46;
-function notaImgLines(s) {
-  const cfg = (S.settings?.nota || {})[s.loja] || {}, o = s.moeda === 'USD' ? 'BRL' : 'USD', L = [];
-  const c = t => { t = String(t).slice(0, IW); return ' '.repeat(Math.floor((IW - t.length) / 2)) + t; };
-  const lr = (a, b) => { a = String(a); b = String(b); return a.length + b.length + 1 > IW ? [a, ' '.repeat(Math.max(IW - b.length, 0)) + b] : [a + ' '.repeat(IW - a.length - b.length) + b]; };
-  const w = (t, n = IW) => { const out = []; let line = ''; String(t).split(/\s+/).forEach(x => { if ((line + ' ' + x).trim().length > n) { if (line) out.push(line); line = x.slice(0, n); } else line = (line + ' ' + x).trim(); }); if (line) out.push(line); return out; };
-  if (cfg.empresa) L.push({ t: c(cfg.empresa.toUpperCase()), b: 1, big: 1 });
-  [cfg.documento, ...(cfg.endereco ? w(cfg.endereco) : []), cfg.telefone && 'Tel.: ' + cfg.telefone].filter(Boolean).forEach(x => L.push({ t: c(x), m: 1 }));
-  L.push({ hr: 2 });
-  const buy = s.kind === 'compra';
-  L.push(...lr((buy ? 'NOTA DE ENTRADA Nº ' : 'NOTA DE VENDA Nº ') + String(s.id).padStart(6, '0'), fDate(s.data) + ' ' + fTime(s.ts)).map(t => ({ t, b: 1 })));
-  L.push({ t: (buy ? 'Destino: ' : 'Loja: ') + LOJAS[s.loja].nome }, { t: (buy ? 'Registrado por: ' : 'Vendedor: ') + s.vendedorNome });
-  if (s.cliente) L.push({ t: (buy ? 'Fornecedor: ' : 'Cliente: ') + s.cliente });
-  if (s.cancelada) L.push({ t: c('*** VENDA CANCELADA ***'), b: 1, red: 1 });
-  L.push({ hr: 1 });
-  (s.itens || []).forEach(i => {
-    w(i.nome).forEach((x, k) => L.push({ t: x, b: !k }));
-    const det = [i.lote && 'Lote ' + i.lote, i.validade && 'Venc. ' + i.validade.slice(5, 7) + '/' + i.validade.slice(2, 4)].filter(Boolean).join(' · ');
-    L.push(...lr(det, `${nNum(i.qtd, i.qtd % 1 ? 2 : 0)} x ${nNum(i.preco)} = ${nNum(i.qtd * i.preco)}`).map(t => ({ t, m: 1 })));
-  });
-  L.push({ hr: 1 });
-  if (s.frete) { L.push(...lr('Subtotal', nMoney(s.subtotal, s.moeda)).map(t => ({ t }))); L.push(...lr('Frete ' + nNum(s.frete.pct, 2).replace(/,00$/, '') + '%' + (s.frete.freteiro ? ' · ' + s.frete.freteiro : ''), nMoney(s.frete.valor, s.moeda)).map(t => ({ t }))); }
-  const vIn = c => saleIn(s, c) == null ? '—' : nMoney(saleIn(s, c), c);
-  L.push(...lr('Valor total em US$', vIn('USD')).map(t => ({ t, b: 1, big: 1 })));
-  L.push(...lr('Valor total em R$', vIn('BRL')).map(t => ({ t, b: 1, big: 1 })));
-  L.push(...lr('Câmbio do dia', +s.cotacao ? 'R$ ' + nNum(s.cotacao, 4).replace(/0{1,2}$/, '') : '—').map(t => ({ t })));
-  if (s.pagamento) L.push(...lr('Pagamento', s.pagamento).map(t => ({ t })));
-  L.push({ hr: 2 });
-  if (!buy) (cfg.rodape ? w(cfg.rodape) : ['Obrigado pela preferência!']).forEach(x => L.push({ t: c(x) }));
-  L.push({ t: c(buy ? 'Documento interno de entrada de estoque' : 'Documento sem valor fiscal'), m: 1 });
-  return L;
-}
 async function notaImage(s) {
   const fam = '"IBM Plex Mono", "Courier New", monospace';
   try { await Promise.all([document.fonts.load(`15px ${fam}`), document.fonts.load(`600 15px ${fam}`)]); } catch (e) {}
-  const lines = notaImgLines(s), k = 2, fs = 15, pad = 28;
+  // same text and layout as the printed note, so both read the same way
+  const cfg = (S.settings?.nota || {})[s.loja] || {};
+  const lines = notaText(s).split('\n').map((t, i) => ({ t: t.replace(/\s+$/, ''), b: (i === 0 && cfg.empresa) || /NOTA DE (VENDA|ENTRADA)|Valor total em/.test(t), red: /VENDA CANCELADA/.test(t) }));
+  const k = 2, fs = 15, pad = 28;
   const cv = document.createElement('canvas'), x = cv.getContext('2d');
   x.font = `${fs}px ${fam}`; const cw = x.measureText('M').width;
-  const lh = l => l.hr ? 14 : l.big ? 26 : 21;
-  const W = Math.ceil(cw * IW + pad * 2), H = lines.reduce((a, l) => a + lh(l), 0) + pad * 2;
+  const lh = () => 21;
+  const W = Math.ceil(cw * NW + pad * 2), H = lines.reduce((a, l) => a + lh(l), 0) + pad * 2;
   cv.width = W * k; cv.height = H * k; x.scale(k, k);
   x.fillStyle = '#ffffff'; x.fillRect(0, 0, W, H);
   let y = pad;
   for (const l of lines) {
     const h = lh(l);
-    if (l.hr) { x.strokeStyle = l.hr === 2 ? '#0f2a44' : '#c9d2dc'; x.lineWidth = l.hr === 2 ? 2 : 1; x.setLineDash(l.hr === 2 ? [] : [4, 3]); x.beginPath(); x.moveTo(pad, y + h / 2); x.lineTo(W - pad, y + h / 2); x.stroke(); x.setLineDash([]); }
-    else {
-      x.font = `${l.b ? 600 : 400} ${l.big ? fs + 2 : fs}px ${fam}`; x.fillStyle = l.red ? '#b42318' : l.m ? '#5b6876' : '#0f1720'; x.textBaseline = 'middle';
+    {
+      x.font = `${l.b ? 600 : 400} ${fs}px ${fam}`; x.fillStyle = l.red ? '#b42318' : '#000000'; x.textBaseline = 'middle';
       // draw character by character on the grid so columns stay aligned even with a bold or larger font
       [...l.t].forEach((ch, i) => x.fillText(ch, pad + i * cw, y + h / 2));
     }
