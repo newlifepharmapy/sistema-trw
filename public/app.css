@@ -217,7 +217,7 @@ tr.cancel td{color:var(--muted);text-decoration:line-through}
   /* the Epson's own "Papel contínuo 8,5 x 6 pol"; the height can be changed in Impressão da nota (default 6 in = 15,24 cm). Letter size
      is the one of the first real print, which the user confirmed was right; the 78 columns (7.8 in) are centred */
   @page{size:8.5in 6in;margin:0}
-  #printArea{padding:0.25in 0 0 0.35in}
+  #printArea{padding:0 0 0 0.35in}
   body{background:#fff !important}
   body>*:not(#printArea){display:none !important}
   #printArea{display:block !important}
