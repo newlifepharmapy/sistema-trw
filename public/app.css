@@ -215,9 +215,9 @@ tr.cancel td{color:var(--muted);text-decoration:line-through}
 @media print{
   /* no page margin: the browser then has no room to print its own date, title and address */
   /* 9.5 in wide; the height is one sheet of the store's continuous form, set in Impressão da nota (15 cm). Letter size
-     and position are the ones of the first real print, which the user confirmed were right */
+     is the one of the first real print, which the user confirmed was right; the 78 columns (7.8 in) are centred */
   @page{size:9.5in 15cm;margin:0}
-  #printArea{padding:0.25in 0.2in}
+  #printArea{padding:0.25in 0 0 0.85in}
   body{background:#fff !important}
   body>*:not(#printArea){display:none !important}
   #printArea{display:block !important}
