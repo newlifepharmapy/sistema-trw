@@ -193,9 +193,10 @@ async function migrate() {
   const { rows } = await pool.query(`select to_regclass('stock_lots') as t`);
   await pool.query(SCHEMA);
   if (!rows[0].t) await seedLots();
-  // the store forms are 6 in (15,24 cm) tall, the Epson's "Papel contínuo 8,5 x 6 pol": earlier defaults (11 in, then 15 cm) move to it once
-  await pool.query(`update settings set nota = jsonb_set(coalesce(nota, '{}'::jsonb), '{papel}', '{"altura": 15.24, "v": 2}'::jsonb)
-    where coalesce(nota->'papel'->>'v', '') in ('', '1') and coalesce(nota->'papel'->>'altura', '27.94') in ('27.94', '15', '')`);
+  // the store forms are exactly 15 cm tall (the 6 in = 15,24 cm paper made each note creep 2,4 mm onto the perforation):
+  // earlier defaults move to 15 cm once
+  await pool.query(`update settings set nota = jsonb_set(coalesce(nota, '{}'::jsonb), '{papel}', '{"altura": 15, "v": 3}'::jsonb)
+    where coalesce(nota->'papel'->>'v', '') in ('', '1', '2') and coalesce(nota->'papel'->>'altura', '27.94') in ('27.94', '15', '15.24', '')`);
 }
 
 // first run with lots: rebuild them from the purchases still in force, then trim each product down to

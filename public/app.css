@@ -214,10 +214,10 @@ tr.cancel td{color:var(--muted);text-decoration:line-through}
 .nota-loja textarea{width:100%;min-height:56px;font:inherit;padding:8px 10px;border:1px solid var(--line-2);border-radius:8px;background:var(--surface);color:var(--fg)}
 @media print{
   /* no page margin: the browser then has no room to print its own date, title and address */
-  /* the Epson's own "Papel contínuo 8,5 x 6 pol"; the height can be changed in Impressão da nota (default 6 in = 15,24 cm). Letter size
+  /* 8.5 in x 15 cm, the paper "CONTINUO 2 VIAS" (21,59 x 15 cm) defined in the Epson driver; the height can be changed in Impressão da nota. Letter size
      is the one of the first real print, which the user confirmed was right; the 70 columns (7 in) are centred, inside the printable area
      the real print showed (about 0.5 to 7.95 in across, and below the first 0.2 in) */
-  @page{size:8.5in 6in;margin:0}
+  @page{size:8.5in 15cm;margin:0}
   #printArea{padding:0.2in 0 0 0.75in}
   body{background:#fff !important}
   body>*:not(#printArea){display:none !important}

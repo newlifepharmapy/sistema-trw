@@ -797,7 +797,7 @@ function printNota(s) {
   if (!s) return;
   const pre = document.createElement('pre'); pre.textContent = notaText(s);
   // the page is exactly one sheet of the continuous form, so the next note starts at the next perforation
-  const st = document.createElement('style'), h = +S.settings?.nota?.papel?.altura || 15.24;
+  const st = document.createElement('style'), h = +S.settings?.nota?.papel?.altura || 15;
   st.textContent = `@media print{@page{size:8.5in ${h}cm;margin:0}}`;
   $('#printArea').replaceChildren(st, pre);
   setTimeout(() => window.print(), 50);
@@ -812,7 +812,7 @@ function renderNota() {
 $('#notaSave').onclick = async () => {
   const body = { PY: {}, SP: {} };
   $$('#notaForm [data-nl]').forEach(i => { body[i.dataset.nl][i.dataset.nk] = i.value; });
-  body.papel = { altura: +String($('#notaAlt').value).replace(',', '.') || 15.24 };
+  body.papel = { altura: +String($('#notaAlt').value).replace(',', '.') || 15 };
   if (await act(() => api('/nota/config', 'POST', body), 'Dados da nota salvos.')) { document.activeElement?.blur(); renderNota(); }
 };
 $('#notaTest').onclick = () => printNota({ id: 123, loja: 'PY', data: today(), ts: Date.now(), moeda: 'USD', total: 57.5, cotacao: S.rate || 5.4, pagamento: 'EFETIVO', cliente: 'Cliente de teste', vendedorNome: S.me.nome,
