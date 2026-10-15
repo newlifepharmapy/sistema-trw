@@ -218,7 +218,7 @@ tr.cancel td{color:var(--muted);text-decoration:line-through}
      is the one of the first real print, which the user confirmed was right; the 70 columns (7 in) are centred, inside the printable area
      the real print showed (about 0.5 to 7.95 in across, and below the first 0.2 in) */
   @page{size:8.5in 15cm;margin:0}
-  #printArea{padding:0.2in 0 0 0.75in}
+  #printArea{padding:0.35in 0 0 0.75in}
   body{background:#fff !important}
   body>*:not(#printArea){display:none !important}
   #printArea{display:block !important}
