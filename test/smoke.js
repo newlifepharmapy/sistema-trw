@@ -129,6 +129,20 @@ function client() {
   tpd = (await adm('/api/data')).data;
   assert(tpd.products.find(p => p.id === tp).estoque.PY === 10 && tpd.products.find(p => p.id === tp).estoque.SP === 0 && tpd.transfers[0].cancelada, 'cancelar devolve ao PY e fica no histórico');
   assert((await ana(`/api/transfers/${tr.data.transfer.id}`, 'DELETE', {})).status === 200, 'transferência cancelada excluída');
+  // quotes: saved without touching stock, and a sale made from one closes it
+  const qp = (await adm('/api/data')).data.products.find(x => x.id === tp);
+  const qt = await adm('/api/quotes', 'POST', { loja: 'PY', moeda: 'USD', cliente: 'Farmácia Teste', validadeDias: 10, itens: [{ pid: tp, nome: 'x', qtd: 3, preco: 18 }] });
+  assert(qt.status === 200 && qt.data.quote.total === 54 && qt.data.quote.status === 'aberto' && qt.data.quote.validade > qt.data.quote.data, 'orçamento salvo com validade');
+  let qd = (await adm('/api/data')).data;
+  assert(qd.products.find(x => x.id === tp).estoque.PY === qp.estoque.PY && qd.quotes.some(q => q.id === qt.data.quote.id), 'orçamento não mexe no estoque');
+  const qs = await adm('/api/sales', 'POST', { loja: 'PY', moeda: 'USD', pagamento: 'EFETIVO', orcamentoId: qt.data.quote.id, itens: [{ pid: tp, nome: 'x', qtd: 3, preco: 18 }] });
+  qd = (await adm('/api/data')).data;
+  assert(qd.quotes.find(q => q.id === qt.data.quote.id).status === 'vendido' && qd.quotes.find(q => q.id === qt.data.quote.id).vendaId === qs.data.sale.id, 'venda do orçamento fecha o orçamento');
+  await adm(`/api/sales/${qs.data.sale.id}/cancel`, 'POST', {});
+  assert((await adm(`/api/quotes/${qt.data.quote.id}/cancel`, 'POST', {})).status === 400, 'orçamento vendido não se cancela');
+  const qt2 = await adm('/api/quotes', 'POST', { loja: 'SP', moeda: 'BRL', itens: [{ nome: 'Avulso', qtd: 1, preco: 10 }] });
+  assert((await ana(`/api/quotes/${qt2.data.quote.id}`, 'DELETE', {})).status === 400, 'orçamento aberto não se exclui');
+  assert((await adm(`/api/quotes/${qt2.data.quote.id}/cancel`, 'POST', {})).status === 200 && (await ana(`/api/quotes/${qt2.data.quote.id}`, 'DELETE', {})).status === 200, 'orçamento cancelado e excluído');
   // whatsapp bot
   process.env.DATABASE_URL ||= 'postgres://localhost/nao-usado';
   const bot = require('../bot');

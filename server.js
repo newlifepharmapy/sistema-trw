@@ -95,6 +95,7 @@ const canStore = (u, l) => has(u, 'vendas_' + l);
 
 const pubUser = u => ({ id: u.id, login: u.login, nome: u.nome, papel: u.papel, loja: u.loja, telefone: u.telefone, documento: u.documento, comissao: u.comissao, ativo: u.ativo, permissoes: perms(u) });
 const mapProduct = p => ({ id: p.id, codigo: p.codigo, nome: p.nome, grupo: p.grupo, marca: p.marca, lote: p.lote, validade: p.validade || '', custo: p.custo, custoSp: p.custo_sp, precoUsd: p.preco_usd, precoBrl: p.preco_brl, estoque: { PY: p.estoque_py, SP: p.estoque_sp } });
+const mapQuote = q => ({ id: q.id, loja: q.loja, data: q.data, ts: q.ts, moeda: q.moeda, cliente: q.cliente, obs: q.obs, validade: q.validade || '', itens: q.itens, total: q.total, cotacao: q.cotacao, vendedorNome: q.vendedor_nome, status: q.status, vendaId: q.venda_id });
 const mapTransfer = t => ({ id: t.id, data: t.data, ts: t.ts, itens: t.itens, subtotal: t.subtotal, fretePct: t.frete_pct, freteValor: t.frete_valor, freteiro: t.freteiro, total: t.total, criadoPor: t.criado_por, cancelada: t.cancelada, canceladaPor: t.cancelada_por });
 const mapSale = s => ({ id: s.id, loja: s.loja, data: s.data, ts: s.ts, moeda: s.moeda, total: s.total, cotacao: s.cotacao, pagamento: s.pagamento, cliente: s.cliente, itens: s.itens, custoUsd: s.custo_usd, vendedorId: s.vendedor_id, vendedorNome: s.vendedor_nome, cancelada: s.cancelada, canceladaPor: s.cancelada_por });
 const mapPurchase = p => ({ id: p.id, data: p.data, ts: p.ts, fornecedor: p.fornecedor, loja: p.loja, moeda: p.moeda, itens: p.itens, subtotal: p.subtotal, fretePct: p.frete_pct, freteValor: p.frete_valor, freteiro: p.freteiro, total: p.total, cotacao: p.cotacao, pagamento: p.pagamento, criadoPor: p.criado_por, cancelada: p.cancelada, canceladaPor: p.cancelada_por });
@@ -195,16 +196,18 @@ app.get('/api/data', auth, h(async (req, res) => {
     purchases: [], imports: [], users: [],
   };
   const none = Promise.resolve({ rows: [] });
-  const [p, i, us, tr] = await Promise.all([
+  const [p, i, us, tr, qt] = await Promise.all([
     has(u, 'compras') ? pool.query('select * from purchases where ts >= $1 order by ts desc', [since]) : none,
     has(u, 'importacoes') || has(u, 'dash') ? pool.query('select * from imports where ts >= $1 or not (recebida or cancelada) order by ts desc', [since]) : none,
     has(u, 'usuarios') ? pool.query('select * from users order by nome') : none,
     has(u, 'compras') ? pool.query('select * from transfers where ts >= $1 order by ts desc', [since]) : none,
+    pool.query('select * from quotes where (ts >= $1 or status = $3) and loja = any($2) order by ts desc', [since, stores, 'aberto']),
   ]);
   out.purchases = p.rows.map(mapPurchase);
   out.imports = i.rows.map(mapImport);
   out.users = us.rows.map(pubUser);
   out.transfers = tr.rows.map(mapTransfer);
+  out.quotes = qt.rows.map(mapQuote);
   res.json(out);
 }));
 
@@ -340,6 +343,8 @@ app.post('/api/sales', auth, h(async (req, res) => {
     const { rows } = await c.query(`insert into sales (loja,data,ts,moeda,total,cotacao,pagamento,cliente,itens,custo_usd,vendedor_id,vendedor_nome)
       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) returning *`,
       [loja, todayStr(), Date.now(), moeda, total, rate, b.pagamento, str(b.cliente, 120), JSON.stringify(itens), r2(custoUsd), u.id, u.nome]);
+    // a sale made from a quote closes that quote
+    if (b.orcamentoId) await c.query(`update quotes set status='vendido', venda_id=$1 where id=$2 and loja=$3 and status='aberto'`, [rows[0].id, +b.orcamentoId, loja]);
     return rows[0];
   });
   bump(); res.json({ sale: mapSale(out) });
@@ -467,6 +472,47 @@ app.post('/api/purchases', auth, need('compras'), h(async (req, res) => {
     return r.rows[0];
   });
   bump(); res.json({ ok: true, purchase: mapPurchase(row) });
+}));
+
+// ---------- orçamentos ----------
+// prices are what the seller typed; nothing leaves the stock until the quote becomes a sale
+app.post('/api/quotes', auth, h(async (req, res) => {
+  const b = req.body, u = req.user;
+  const loja = LOJAS.includes(b.loja) ? b.loja : bad('Loja inválida.');
+  if (!canStore(u, loja)) throw new HttpError(403, 'Você não tem acesso a esta loja.');
+  const moeda = MOEDAS.includes(b.moeda) ? b.moeda : bad('Moeda inválida.');
+  const itensIn = Array.isArray(b.itens) ? b.itens.filter(i => num(i.qtd) > 0).slice(0, 200) : [];
+  if (!itensIn.length) bad('Adicione pelo menos um produto.');
+  const rate = await currentRate(); if (!rate) bad('Defina a cotação do dólar antes.');
+  const itens = [];
+  for (const i of itensIn) {
+    const qtd = num(i.qtd), preco = r2(num(i.preco));
+    if (!(preco > 0)) bad('Há item sem preço. Informe o preço.');
+    if (i.pid) {
+      const { rows } = await pool.query('select * from products where id=$1 and ativo', [+i.pid]);
+      const p = rows[0]; if (!p) bad('Produto não encontrado: ' + str(i.nome));
+      itens.push({ pid: p.id, nome: p.nome, codigo: p.codigo, lote: p.lote, validade: p.validade || '', qtd, preco });
+    } else itens.push({ pid: null, nome: str(i.nome, 120) || 'Item avulso', codigo: '', lote: '', validade: '', qtd, preco });
+  }
+  const dias = Math.min(365, Math.max(1, Math.round(num(b.validadeDias, 7))));
+  const validade = new Date(Date.parse(todayStr() + 'T12:00:00Z') + dias * 864e5).toISOString().slice(0, 10);
+  const total = r2(itens.reduce((a, i) => a + i.qtd * i.preco, 0));
+  const { rows } = await pool.query(`insert into quotes (loja,data,ts,moeda,cliente,obs,validade,itens,total,cotacao,vendedor_id,vendedor_nome) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) returning *`,
+    [loja, todayStr(), Date.now(), moeda, str(b.cliente, 120), str(b.obs, 500), validade, JSON.stringify(itens), total, rate, u.id, u.nome]);
+  bump(); res.json({ ok: true, quote: mapQuote(rows[0]) });
+}));
+app.post('/api/quotes/:id/cancel', auth, h(async (req, res) => {
+  const { rows } = await pool.query('select * from quotes where id=$1', [+req.params.id]);
+  const q = rows[0]; if (!q) bad('Orçamento não encontrado.');
+  if (!canStore(req.user, q.loja)) throw new HttpError(403, 'Você não tem acesso a esta loja.');
+  if (q.status !== 'aberto') bad(q.status === 'vendido' ? 'Este orçamento já virou venda.' : 'Este orçamento já foi cancelado.');
+  await pool.query(`update quotes set status='cancelado', cancelado_por=$1, cancelado_em=$2 where id=$3`, [req.user.nome, Date.now(), q.id]);
+  bump(); res.json({ ok: true });
+}));
+app.delete('/api/quotes/:id', auth, need('excluir'), h(async (req, res) => {
+  const r = await pool.query(`delete from quotes where id=$1 and status='cancelado'`, [+req.params.id]);
+  if (!r.rowCount) bad('Só é possível excluir orçamentos cancelados. Cancele antes.');
+  bump(); res.json({ ok: true });
 }));
 
 // ---------- transferências Paraguay → São Paulo ----------

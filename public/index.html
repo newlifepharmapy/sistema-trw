@@ -59,6 +59,7 @@
       <div class="nav-g"><span>Vendas</span>
         <button data-tab="PY"><i class="ic flag-py"></i>Vendas Paraguay</button>
         <button data-tab="SP"><i class="ic flag-br"></i>Vendas São Paulo</button>
+        <button data-tab="orc"><i class="ic">✎</i>Orçamentos</button>
         <button data-tab="hist"><i class="ic">≡</i>Histórico de vendas</button>
         <button data-tab="tab"><i class="ic">✆</i>Tabela WhatsApp</button>
       </div>
@@ -217,6 +218,29 @@
           <div class="row between actions"><div><span class="lbl">Total da entrada</span><div class="num big" id="bTotal">—</div><div class="hint num" id="bTotalSub"></div></div><button class="btn primary" id="bSave">Registrar entrada</button></div>
         </div>
         <div class="card"><h2>Entradas registradas</h2><div class="tablewrap" id="buyList"></div></div>
+      </section>
+
+      <!-- QUOTES -->
+      <section class="pane" id="pane-orc" hidden>
+        <div class="card">
+          <h2>Novo orçamento</h2>
+          <div class="fields">
+            <label class="field"><span class="lbl">Loja</span><select id="oLoja"></select></label>
+            <label class="field"><span class="lbl">Moeda</span><select id="oCur"><option value="USD">Dólar (US$)</option><option value="BRL">Real (R$)</option></select></label>
+            <label class="field span2"><span class="lbl">Cliente (nome e telefone)</span><input type="text" id="oCli" placeholder="Ex.: Farmácia Central 0981 123456"></label>
+            <label class="field"><span class="lbl">Válido por (dias)</span><input type="number" id="oDias" min="1" max="365" value="7"></label>
+          </div>
+          <div class="fields additem">
+            <label class="field"><span class="lbl">Produto</span><select id="oProd"></select></label>
+            <label class="field"><span class="lbl">Quantidade</span><input type="number" id="oQty" min="1" value="1"></label>
+            <label class="field"><span class="lbl">Preço unitário</span><input type="number" id="oPrice" min="0" step="0.01"></label>
+            <button class="btn" id="oAdd">Adicionar</button>
+          </div>
+          <div class="tablewrap"><table><thead><tr><th>Produto</th><th class="r">Estoque</th><th class="r">Qtd</th><th class="r">Preço un.</th><th class="r">Subtotal</th><th></th></tr></thead><tbody id="oItems"></tbody></table></div>
+          <label class="field"><span class="lbl">Observação (sai no orçamento)</span><input type="text" id="oObs" maxlength="500" placeholder="Ex.: entrega em 3 dias, pagamento via PIX"></label>
+          <div class="row between actions"><div><span class="lbl">Total do orçamento</span><div class="num big" id="oTotal">—</div><div class="hint num" id="oTotalSub"></div></div><button class="btn primary" id="oSave">Salvar orçamento</button></div>
+        </div>
+        <div class="card"><div class="row between"><h2>Orçamentos</h2><select id="oFilter" class="gm-sel"><option value="aberto">Em aberto</option><option value="all">Todos</option><option value="vendido">Viraram venda</option><option value="cancelado">Cancelados</option></select></div><div class="tablewrap" id="orcList"></div></div>
       </section>
 
       <!-- TRANSFER PY -> SP -->

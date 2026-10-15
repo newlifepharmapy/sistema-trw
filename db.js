@@ -90,6 +90,28 @@ create table if not exists transfers (
 );
 create index if not exists transfers_ts_idx on transfers (ts desc);
 
+-- customer quotes; a quote turned into a sale keeps the id of that sale
+create table if not exists quotes (
+  id serial primary key,
+  loja text not null check (loja in ('PY','SP')),
+  data date not null,
+  ts bigint not null,
+  moeda text not null check (moeda in ('USD','BRL')),
+  cliente text not null default '',
+  obs text not null default '',
+  validade date,
+  itens jsonb not null,
+  total numeric not null,
+  cotacao numeric not null,
+  vendedor_id int references users(id) on delete set null,
+  vendedor_nome text not null,
+  status text not null default 'aberto' check (status in ('aberto','vendido','cancelado')),
+  venda_id int,
+  cancelado_por text,
+  cancelado_em bigint
+);
+create index if not exists quotes_ts_idx on quotes (ts desc);
+
 create table if not exists sales (
   id serial primary key,
   loja text not null check (loja in ('PY','SP')),
