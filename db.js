@@ -193,6 +193,9 @@ async function migrate() {
   const { rows } = await pool.query(`select to_regclass('stock_lots') as t`);
   await pool.query(SCHEMA);
   if (!rows[0].t) await seedLots();
+  // the store forms are 15 cm tall: a sheet height saved before that was known (the old 11 in default) becomes 15 cm once
+  await pool.query(`update settings set nota = jsonb_set(coalesce(nota, '{}'::jsonb), '{papel}', '{"altura": 15, "v": 1}'::jsonb)
+    where coalesce(nota->'papel'->>'v', '') = '' and coalesce(nota->'papel'->>'altura', '27.94') in ('27.94', '')`);
 }
 
 // first run with lots: rebuild them from the purchases still in force, then trim each product down to

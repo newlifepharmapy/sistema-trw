@@ -272,9 +272,9 @@ async function autoRate(force) {
 const NOTA_F = ['empresa', 'documento', 'endereco', 'telefone', 'rodape'];
 app.post('/api/nota/config', auth, need('usuarios'), h(async (req, res) => {
   const nota = Object.fromEntries(LOJAS.map(l => [l, Object.fromEntries(NOTA_F.map(k => [k, str(req.body?.[l]?.[k], k === 'rodape' ? 300 : 120)]))]));
-  // height of one continuous-form sheet, perforation to perforation, in cm (11 in = 27.94 cm)
+  // height of one continuous-form sheet, perforation to perforation, in cm (the store forms are 25 x 15 cm)
   const alt = num(req.body?.papel?.altura);
-  nota.papel = { altura: alt >= 5 && alt <= 60 ? Math.round(alt * 100) / 100 : 27.94 };
+  nota.papel = { altura: alt >= 5 && alt <= 60 ? Math.round(alt * 100) / 100 : 15, v: 1 };
   await pool.query('insert into settings (id) values (1) on conflict (id) do nothing');
   await pool.query('update settings set nota=$1 where id=1', [JSON.stringify(nota)]);
   bump(); res.json({ ok: true });
