@@ -214,14 +214,14 @@ tr.cancel td{color:var(--muted);text-decoration:line-through}
 .nota-loja textarea{width:100%;min-height:56px;font:inherit;padding:8px 10px;border:1px solid var(--line-2);border-radius:8px;background:var(--surface);color:var(--fg)}
 @media print{
   /* no page margin: the browser then has no room to print its own date, title and address */
-  /* one 9.5 x 11 in sheet of continuous form (the user-defined paper in the Epson driver, since it refuses Letter with the tractor); the 78 columns take 6.5 in (12 cpi), centred on the sheet so they stay inside
-     the printable area of the Epson FX/LX-890II even with the tractor strips and its hardware margins */
-  @page{size:9.5in 11in;margin:0}
-  #printArea{padding:0.3in 0 0 1.5in}
+  /* 9.5 in wide; the height is one sheet of the store's continuous form, set in Impressão da nota (15 cm). Letter size
+     and position are the ones of the first real print, which the user confirmed were right */
+  @page{size:9.5in 15cm;margin:0}
+  #printArea{padding:0.25in 0.2in}
   body{background:#fff !important}
   body>*:not(#printArea){display:none !important}
   #printArea{display:block !important}
-  #printArea pre{font-family:"Courier New",Courier,monospace;font-size:10pt;line-height:12pt;color:#000;margin:0;white-space:pre}
+  #printArea pre{font-family:"Courier New",Courier,monospace;font-size:12pt;line-height:1.2;color:#000;margin:0;white-space:pre}
 }
 
 .wa-card{width:min(560px,100%);max-height:calc(100vh - 32px);overflow:auto}
