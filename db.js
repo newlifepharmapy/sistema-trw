@@ -73,6 +73,18 @@ alter table products add column if not exists marca text not null default '';
 -- cost of the units in São Paulo, with the freight of the transfer from Paraguay or of the SP purchase
 alter table products add column if not exists custo_sp numeric;
 
+-- how many units of each lot (and expiry month) are in each store; stock without a lot is the product
+-- stock minus the sum of its lots
+create table if not exists stock_lots (
+  id serial primary key,
+  product_id int not null references products(id) on delete cascade,
+  loja text not null check (loja in ('PY','SP')),
+  lote text not null default '',
+  validade text not null default '',
+  qtd numeric not null default 0,
+  unique (product_id, loja, lote, validade)
+);
+
 create table if not exists transfers (
   id serial primary key,
   data date not null,
@@ -178,7 +190,37 @@ alter table imports add column if not exists cancelada_em bigint;
 `;
 
 async function migrate() {
+  const { rows } = await pool.query(`select to_regclass('stock_lots') as t`);
   await pool.query(SCHEMA);
+  if (!rows[0].t) await seedLots();
+}
+
+// first run with lots: rebuild them from the purchases still in force, then trim each product down to
+// its current stock taking the oldest expiry first (as if those were the units already sold)
+async function seedLots() {
+  const { rows: buys } = await pool.query(`select loja, itens from purchases where not cancelada order by ts`);
+  const { rows: prods } = await pool.query('select id, estoque_py, estoque_sp from products');
+  const stock = new Map(prods.map(p => [p.id, { PY: +p.estoque_py, SP: +p.estoque_sp }]));
+  const lots = new Map();
+  for (const b of buys) for (const i of b.itens || []) {
+    const lote = String(i.lote || '').trim(), validade = String(i.validade || '').slice(0, 10);
+    if (!i.pid || !stock.has(+i.pid) || (!lote && !validade)) continue;
+    const k = [+i.pid, b.loja, lote, validade].join('|');
+    lots.set(k, (lots.get(k) || 0) + (+i.qtd || 0));
+  }
+  const byStock = new Map();
+  for (const [k, q] of lots) {
+    const [pid, loja, lote, validade] = k.split('|');
+    const key = pid + '|' + loja;
+    if (!byStock.has(key)) byStock.set(key, []);
+    byStock.get(key).push({ pid: +pid, loja, lote, validade, qtd: q });
+  }
+  for (const L of byStock.values()) {
+    let over = L.reduce((a, l) => a + l.qtd, 0) - Math.max(0, stock.get(L[0].pid)[L[0].loja]);
+    L.sort((a, b) => (a.validade || '9999') < (b.validade || '9999') ? -1 : 1);
+    for (const l of L) { const t = Math.min(l.qtd, Math.max(0, over)); l.qtd -= t; over -= t; }
+    for (const l of L) if (l.qtd > 0) await pool.query('insert into stock_lots (product_id, loja, lote, validade, qtd) values ($1,$2,$3,$4,$5)', [l.pid, l.loja, l.lote, l.validade, l.qtd]);
+  }
 }
 
 async function tx(fn) {

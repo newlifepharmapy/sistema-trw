@@ -31,7 +31,7 @@ function client() {
   assert((await sel('/api/sales', 'POST', { loja: 'PY', moeda: 'USD', pagamento: 'EFETIVO', itens: [{ pid: p.data.id, qtd: 1, preco: 4 }] })).status === 403, 'vendedor SP não vende no PY');
   assert((await sel('/api/sales', 'POST', { loja: 'SP', moeda: 'BRL', pagamento: 'Cartão', itens: [{ nome: 'x', qtd: 1, preco: 1 }] })).status === 400, 'só aceita PIX / Transf., USDT ou EFETIVO');
   const s = await sel('/api/sales', 'POST', { loja: 'SP', moeda: 'BRL', pagamento: 'PIX / Transf.', itens: [{ pid: p.data.id, qtd: 2, preco: 22 }, { nome: 'Avulso', qtd: 1, preco: 10 }] });
-  assert(s.status === 200 && s.data.sale.total === 54 && s.data.sale.itens[0].lote === 'L123', 'venda SP registrada com lote');
+  assert(s.status === 200 && s.data.sale.total === 54 && s.data.sale.itens[0].lote === '', 'venda SP registrada; o lote L123 está no PY, então sai sem lote');
   assert((await sel('/api/purchases', 'POST', { loja: 'SP', moeda: 'USD', itens: [{ pid: p.data.id, qtd: 1, custo: 1 }] })).status === 403, 'vendedor não registra entrada');
   const sd = (await sel('/api/data')).data;
   assert(sd.users.length === 0 && sd.purchases.length === 0, 'vendedor não vê usuários nem compras');
@@ -143,6 +143,35 @@ function client() {
   const qt2 = await adm('/api/quotes', 'POST', { loja: 'SP', moeda: 'BRL', itens: [{ nome: 'Avulso', qtd: 1, preco: 10 }] });
   assert((await ana(`/api/quotes/${qt2.data.quote.id}`, 'DELETE', {})).status === 400, 'orçamento aberto não se exclui');
   assert((await adm(`/api/quotes/${qt2.data.quote.id}/cancel`, 'POST', {})).status === 200 && (await ana(`/api/quotes/${qt2.data.quote.id}`, 'DELETE', {})).status === 200, 'orçamento cancelado e excluído');
+  // stock by lot: each entry adds to its lot, sales take the lot that expires first (or the one picked)
+  const lp2 = (await adm('/api/products', 'POST', { codigo: 'LOT1', nome: 'Produto com lotes', custo: 1, precoUsd: 2, estoque: { PY: 0, SP: 0 } })).data.id;
+  const e1 = await adm('/api/purchases', 'POST', { loja: 'PY', moeda: 'USD', itens: [{ pid: lp2, qtd: 10, custo: 1, lote: 'A', validade: '2028-05-01' }, { pid: lp2, qtd: 5, custo: 1, lote: 'B', validade: '2027-01-01' }] });
+  const lotsNow = async () => (await adm('/api/data')).data.products.find(x => x.id === lp2);
+  let lx = await lotsNow();
+  assert(lx.estoque.PY === 15 && lx.lotes.length === 2 && lx.lotes[0].lote === 'B' && lx.lotes[0].qtd === 5 && lx.lotes[1].qtd === 10 && lx.lote === 'B', 'cada lote com sua quantidade, o que vence primeiro na frente');
+  const sl = await adm('/api/sales', 'POST', { loja: 'PY', moeda: 'USD', pagamento: 'EFETIVO', itens: [{ pid: lp2, qtd: 7, preco: 2 }] });
+  assert(sl.data.sale.itens.length === 2 && sl.data.sale.itens[0].lote === 'B' && sl.data.sale.itens[0].qtd === 5 && sl.data.sale.itens[1].lote === 'A' && sl.data.sale.itens[1].qtd === 2 && sl.data.sale.total === 14, 'venda tira do lote que vence primeiro e mostra cada lote na nota');
+  lx = await lotsNow(); assert(lx.lotes.length === 1 && lx.lotes[0].lote === 'A' && lx.lotes[0].qtd === 8 && lx.estoque.PY === 8, 'lote B esgotado some do estoque');
+  await adm(`/api/sales/${sl.data.sale.id}/cancel`, 'POST', {});
+  lx = await lotsNow(); assert(lx.lotes.find(x => x.lote === 'B').qtd === 5 && lx.lotes.find(x => x.lote === 'A').qtd === 10, 'cancelar venda devolve a cada lote');
+  const sp = await adm('/api/sales', 'POST', { loja: 'PY', moeda: 'USD', pagamento: 'EFETIVO', itens: [{ pid: lp2, qtd: 3, preco: 2, lotePref: { lote: 'A', validade: '2028-05-31' } }] });
+  assert(sp.data.sale.itens.length === 1 && sp.data.sale.itens[0].lote === 'A', 'vendedor pode escolher o lote');
+  await adm(`/api/sales/${sp.data.sale.id}/cancel`, 'POST', {});
+  const tr2 = await adm('/api/transfers', 'POST', { fretePct: 0, itens: [{ pid: lp2, qtd: 4, lotePref: { lote: 'A', validade: '2028-05-31' } }] });
+  lx = await lotsNow();
+  assert(tr2.status === 200 && lx.lotes.find(x => x.loja === 'SP' && x.lote === 'A').qtd === 4 && lx.lotes.find(x => x.loja === 'PY' && x.lote === 'A').qtd === 6, 'transferência leva o lote para SP');
+  await adm(`/api/transfers/${tr2.data.transfer.id}/cancel`, 'POST', {});
+  // cancelling the purchase takes its lots out, so the product no longer shows them (the reported bug)
+  await adm(`/api/purchases/${e1.data.purchase.id}/cancel`, 'POST', {});
+  lx = await lotsNow(); assert(lx.estoque.PY === 0 && lx.lotes.length === 0 && lx.lote === '' && lx.validade === '', 'compra cancelada leva o lote e a validade embora');
+  // fixing lots by hand in the product form
+  await adm(`/api/products/${lp2}`, 'PUT', { nome: 'Produto com lotes', custo: 1, precoUsd: 2, estoque: { PY: 6, SP: 0 } });
+  assert((await adm(`/api/products/${lp2}`, 'PUT', { nome: 'Produto com lotes', custo: 1, precoUsd: 2, estoque: { PY: 6, SP: 0 }, lotes: [{ loja: 'PY', lote: 'C', validade: '2029-08-01', qtd: 9 }] })).status === 400, 'lotes não podem passar do estoque');
+  assert((await adm(`/api/products/${lp2}`, 'PUT', { nome: 'Produto com lotes', custo: 1, precoUsd: 2, estoque: { PY: 6, SP: 0 }, lotes: [{ loja: 'PY', lote: 'C', validade: '2029-08-01', qtd: 4 }] })).status === 200, 'lote corrigido no cadastro');
+  lx = await lotsNow(); assert(lx.lotes.length === 1 && lx.lotes[0].validade === '2029-08-31' && lx.lotes[0].qtd === 4, 'lote salvo; os outros 2 ficam sem lote');
+  const s3 = await adm('/api/sales', 'POST', { loja: 'PY', moeda: 'USD', pagamento: 'EFETIVO', itens: [{ pid: lp2, qtd: 5, preco: 2 }] });
+  assert(s3.data.sale.itens.map(i => i.lote + ':' + i.qtd).join() === 'C:4,:1', 'depois do lote, sai do estoque sem lote');
+  await adm(`/api/sales/${s3.data.sale.id}/cancel`, 'POST', {});
   // whatsapp bot
   process.env.DATABASE_URL ||= 'postgres://localhost/nao-usado';
   const bot = require('../bot');

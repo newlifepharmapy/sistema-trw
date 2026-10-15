@@ -71,6 +71,30 @@ function monthEnd(v) {
   if (!(mo >= 1 && mo <= 12)) return '';
   return `${y}-${String(mo).padStart(2, '0')}-${String(new Date(y, mo, 0).getDate()).padStart(2, '0')}`;
 }
+// lots of a product in one store (both stores merged when l is empty), the one that expires first on top;
+// stock beyond the sum of its lots has no lot
+function lotsOf(p, l) {
+  const out = [];
+  for (const x of p.lotes || []) {
+    if (l && x.loja !== l) continue;
+    const e = out.find(o => o.lote === x.lote && o.validade === x.validade);
+    if (e) e.qtd += +x.qtd; else out.push({ lote: x.lote, validade: x.validade, qtd: +x.qtd });
+  }
+  const k = x => x.validade || '9999';
+  return out.sort((a, b) => k(a) < k(b) ? -1 : k(a) > k(b) ? 1 : a.lote.localeCompare(b.lote));
+}
+const noLotQty = (p, l) => l ? Math.max(0, stockOf(p, l) - lotsOf(p, l).reduce((a, x) => a + x.qtd, 0)) : noLotQty(p, 'PY') + noLotQty(p, 'SP');
+const firstLot = (p, l) => lotsOf(p, l)[0] || null;
+const lotKey = x => JSON.stringify([x.lote || '', x.validade || '']);
+const lotName = x => [x.lote ? 'Lote ' + x.lote : 'Sem lote', x.validade ? 'val. ' + fVal(x.validade) : ''].filter(Boolean).join(' · ');
+// Lote and Validade cells of the stock tables: one line per lot with its quantity
+function lotCells(p, l) {
+  const L = lotsOf(p, l), free = noLotQty(p, l), n = v => (+v).toLocaleString('pt-BR');
+  if (!L.length) return `<td class="num"><span class="hint">—</span></td><td><span class="hint">—</span></td>`;
+  if (free > 0) L.push({ lote: '', validade: '', qtd: free });
+  return `<td class="num lotc">${L.map(x => `<div>${x.lote ? esc(x.lote) : '<span class="hint">Sem lote</span>'} <span class="hint">· ${n(x.qtd)} un.</span></div>`).join('')}</td>`
+    + `<td class="lotc" style="white-space:nowrap">${L.map(x => `<div>${valPill(x.validade)}</div>`).join('')}</td>`;
+}
 function valPill(d) {
   if (!d) return '<span class="hint">—</span>';
   const n = daysTo(d), cls = n < 0 ? 'bad' : n <= 90 ? 'warn' : '', t = n < 0 ? 'vencido' : n === 0 ? 'vence hoje' : n <= 90 ? `${n} dias` : '';
@@ -200,7 +224,7 @@ function buildSalePane(l) {
     if (!t) { sg.hidden = true; hits = []; return; }
     hits = S.products.filter(p => (p.codigo || '').toLowerCase() === t).concat(S.products.filter(p => (p.codigo || '').toLowerCase() !== t && ((p.codigo || '').toLowerCase().startsWith(t) || p.nome.toLowerCase().includes(t)))).slice(0, 7);
     hi = Math.min(hi, Math.max(hits.length - 1, 0));
-    sg.innerHTML = hits.map((p, i) => `<button data-i="${i}" class="${i === hi ? 'on' : ''}"><span><span class="code">${esc(p.codigo || '')}</span> ${esc(p.nome)}</span><span class="row" style="gap:8px"><span class="num">${fm(priceFor(p, c.cur), c.cur)}</span>${p.lote ? `<span class="hint">Lote ${esc(p.lote)}</span>` : ''}${p.validade ? `<span class="pill ${daysTo(p.validade) < 0 ? 'bad' : daysTo(p.validade) <= 90 ? 'warn' : ''}">val. ${fDate(p.validade)}</span>` : ''}<span class="pill ${stockOf(p, l) <= 0 ? 'bad' : ''}">${stockOf(p, l)} em estoque</span></span></button>`).join('')
+    sg.innerHTML = hits.map((p, i) => `<button data-i="${i}" class="${i === hi ? 'on' : ''}"><span><span class="code">${esc(p.codigo || '')}</span> ${esc(p.nome)}</span><span class="row" style="gap:8px"><span class="num">${fm(priceFor(p, c.cur), c.cur)}</span>${(fl => (fl?.lote ? `<span class="hint">Lote ${esc(fl.lote)}</span>` : '') + (fl?.validade ? `<span class="pill ${daysTo(fl.validade) < 0 ? 'bad' : daysTo(fl.validade) <= 90 ? 'warn' : ''}">val. ${fVal(fl.validade)}</span>` : ''))(firstLot(p, l))}<span class="pill ${stockOf(p, l) <= 0 ? 'bad' : ''}">${stockOf(p, l)} em estoque</span></span></button>`).join('')
       + `<button data-i="-1" class="${hits.length ? '' : 'on'}"><span>Adicionar “${esc(q.value.trim())}” como item avulso</span><span class="hint">Enter</span></button>`;
     sg.hidden = false;
   };
@@ -225,6 +249,7 @@ function buildSalePane(l) {
   const cart = $('#cart-' + l);
   cart.addEventListener('input', e => {
     const it = c.items[+e.target.dataset.i]; if (!it) return;
+    if (e.target.dataset.f === 'lot') { it.lk = e.target.value; renderCart(l); return; }
     if (e.target.dataset.f === 'q') it.qtd = Math.max(0, +e.target.value || 0); else it.preco = Math.max(0, +e.target.value || 0);
     renderTotals(l); const sub = e.target.closest('tr').querySelector('.sub'); if (sub) sub.textContent = fm(it.qtd * it.preco, c.cur);
   });
@@ -236,7 +261,7 @@ document.addEventListener('keydown', e => { if (e.key === 'F2' && (S.tab === 'PY
 
 function addToCart(l, p, freeName) {
   const c = S.carts[l];
-  if (p) { const ex = c.items.find(i => i.pid === p.id); if (ex) ex.qtd += 1; else c.items.push({ pid: p.id, nome: p.nome, codigo: p.codigo || '', lote: p.lote || '', validade: p.validade || '', qtd: 1, preco: priceFor(p, c.cur) }); }
+  if (p) { const ex = c.items.find(i => i.pid === p.id); if (ex) ex.qtd += 1; else c.items.push({ pid: p.id, nome: p.nome, codigo: p.codigo || '', lk: '', qtd: 1, preco: priceFor(p, c.cur) }); }
   else c.items.push({ pid: null, nome: freeName, codigo: '', qtd: 1, preco: 0 });
   renderCart(l);
   if (!p) { const ins = $$(`#cart-${l} input[data-f="p"]`); ins[ins.length - 1]?.focus(); ins[ins.length - 1]?.select(); }
@@ -246,11 +271,21 @@ function renderCart(l) {
   $$('#cur-' + l + ' button').forEach(b => b.setAttribute('aria-pressed', b.dataset.c === c.cur));
   $$('#pay-' + l + ' button').forEach(b => b.setAttribute('aria-pressed', b.dataset.p === c.pay));
   $('#ce-' + l).hidden = c.items.length > 0;
-  $('#cart-' + l).innerHTML = c.items.map((it, i) => `<tr><td>${it.codigo ? `<span class="num hint">${esc(it.codigo)}</span> ` : ''}${esc(it.nome)}${it.pid ? '' : ' <span class="pill">avulso</span>'}${it.lote || it.validade ? `<div class="hint">${it.lote ? 'Lote ' + esc(it.lote) : ''}${it.lote && it.validade ? ' · ' : ''}${it.validade ? 'Val. ' + fVal(it.validade) : ''}${it.validade && daysTo(it.validade) < 0 ? ' <span class="pill bad">vencido</span>' : ''}</div>` : ''}</td>
+  $('#cart-' + l).innerHTML = c.items.map((it, i) => `<tr><td>${it.codigo ? `<span class="num hint">${esc(it.codigo)}</span> ` : ''}${esc(it.nome)}${it.pid ? '' : ' <span class="pill">avulso</span>'}${lotPick(it, l, i)}</td>
     <td class="r"><input class="q" type="number" min="0" step="1" value="${it.qtd}" data-i="${i}" data-f="q" aria-label="Quantidade"></td>
     <td class="r"><input type="number" min="0" step="0.01" value="${it.preco}" data-i="${i}" data-f="p" aria-label="Preço unitário"></td>
     <td class="r num sub">${fm(it.qtd * it.preco, c.cur)}</td><td><button class="x" data-i="${i}" aria-label="Remover">×</button></td></tr>`).join('');
   renderTotals(l);
+}
+// which lot the units come out of: by default the one that expires first; the seller can pick another
+function lotPick(it, l, i) {
+  const p = it.pid && S.products.find(x => x.id === it.pid); if (!p) return '';
+  const L = lotsOf(p, l), free = noLotQty(p, l);
+  if (!L.length) return '';
+  const opts = L.map(x => ({ k: lotKey(x), t: `${lotName(x)} · ${x.qtd} un.`, x })).concat(free > 0 ? [{ k: lotKey({}), t: `Sem lote · ${free} un.`, x: { lote: '', validade: '' } }] : []);
+  const cur = opts.find(o => o.k === it.lk) || null, shown = cur ? cur.x : L[0];
+  const venc = shown.validade && daysTo(shown.validade) < 0 ? ' <span class="pill bad">vencido</span>' : '';
+  return `<div class="hint lotpick"><select data-i="${i}" data-f="lot" aria-label="Lote"><option value="">${esc(lotName(L[0]))} (vence primeiro)</option>${opts.map(o => `<option value="${esc(o.k)}" ${o.k === it.lk ? 'selected' : ''}>${esc(o.t)}</option>`).join('')}</select>${venc}</div>`;
 }
 function renderTotals(l) {
   const c = S.carts[l], tot = c.items.reduce((s, i) => s + i.qtd * i.preco, 0), o = c.cur === 'USD' ? 'BRL' : 'USD';
@@ -265,7 +300,7 @@ async function finishSale(l) {
   if (!S.rate) return toast('Defina a cotação do dólar antes de vender.', true);
   if (items.some(i => !(i.preco > 0))) return toast('Há item sem preço. Informe o preço antes de registrar.', true);
   S.saving = true; renderTotals(l);
-  const r = await act(() => api('/sales', 'POST', { loja: l, moeda: c.cur, pagamento: c.pay, cliente: $('#cli-' + l).value, orcamentoId: c.quoteId || null, itens: items.map(i => ({ pid: i.pid, nome: i.nome, qtd: i.qtd, preco: i.preco })) }));
+  const r = await act(() => api('/sales', 'POST', { loja: l, moeda: c.cur, pagamento: c.pay, cliente: $('#cli-' + l).value, orcamentoId: c.quoteId || null, itens: items.map(i => ({ pid: i.pid, nome: i.nome, qtd: i.qtd, preco: i.preco, lotePref: i.lk ? (([lote, validade]) => ({ lote, validade }))(JSON.parse(i.lk)) : null })) }));
   S.saving = false;
   if (r) { c.items = []; c.quoteId = null; $('#cli-' + l).value = ''; renderCart(l); $('#q-' + l).focus(); askDoc(r.sale, () => $('#q-' + l).focus()); }
   renderTotals(l);
@@ -301,7 +336,7 @@ document.addEventListener('click', async e => {
 function fillPick(l) {
   const sel = $('#pl-' + l); if (!sel || document.activeElement === sel) return;
   const c = S.carts[l], av = S.products.filter(p => stockOf(p, l) > 0);
-  sel.innerHTML = `<option value="">${av.length ? `Produtos em estoque (${av.length})` : 'Nenhum produto em estoque'}</option>` + av.map(p => `<option value="${p.id}">${esc((p.codigo ? p.codigo + ' · ' : '') + p.nome)}${p.lote ? ' · lote ' + esc(p.lote) : ''} — ${stockOf(p, l)} un. · ${fm(priceFor(p, c.cur), c.cur)}</option>`).join('');
+  sel.innerHTML = `<option value="">${av.length ? `Produtos em estoque (${av.length})` : 'Nenhum produto em estoque'}</option>` + av.map(p => `<option value="${p.id}">${esc((p.codigo ? p.codigo + ' · ' : '') + p.nome)}${firstLot(p, l)?.lote ? ' · lote ' + esc(firstLot(p, l).lote) : ''} — ${stockOf(p, l)} un. · ${fm(priceFor(p, c.cur), c.cur)}</option>`).join('');
 }
 function renderSaleData(l) {
   fillPick(l);
@@ -356,8 +391,8 @@ function renderDash() {
   bars($('#topSeller'), Object.values(sm).sort((a, b) => b.v - a.v).map(p => ({ label: `${esc(p.nome)} <span class="hint">· ${p.n} vendas</span>`, v: p.v, text: fmD(p.v), parts: [{ v: p.PY, c: 'var(--py)' }, { v: p.SP, c: 'var(--sp)' }] })));
   const ym = {}; sales.forEach(s => { ym[s.pagamento] = (ym[s.pagamento] || 0) + (saleIn(s, D) || 0); });
   bars($('#payMix'), Object.entries(ym).sort((a, b) => b[1] - a[1]).map(([n, v]) => ({ label: esc(n), v, text: `${fmD(v)} · ${tot ? Math.round(v / tot * 100) : 0}%` })), 'var(--accent)');
-  const exp = S.products.filter(p => p.validade && daysTo(p.validade) <= 90 && (stockOf(p, 'PY') > 0 || stockOf(p, 'SP') > 0)).sort((a, b) => a.validade < b.validade ? -1 : 1).slice(0, 12);
-  $('#expiring').innerHTML = exp.length ? `<table><thead><tr><th>Produto</th><th>Lote</th><th>Validade</th><th class="r">Estoque</th></tr></thead><tbody>${exp.map(p => `<tr><td>${esc(p.nome)}</td><td class="num">${esc(p.lote || '—')}</td><td style="white-space:nowrap">${valPill(p.validade)}</td><td class="r num">${stockOf(p, 'PY') + stockOf(p, 'SP')}</td></tr>`).join('')}</tbody></table>` : '<div class="empty">Nenhum produto em estoque vencido ou vencendo nos próximos 90 dias.</div>';
+  const exp = S.products.flatMap(p => lotsOf(p).filter(x => x.validade && daysTo(x.validade) <= 90).map(x => ({ ...x, nome: p.nome }))).sort((a, b) => a.validade < b.validade ? -1 : 1).slice(0, 12);
+  $('#expiring').innerHTML = exp.length ? `<table><thead><tr><th>Produto</th><th>Lote</th><th>Validade</th><th class="r">Estoque</th></tr></thead><tbody>${exp.map(x => `<tr><td>${esc(x.nome)}</td><td class="num">${esc(x.lote || '—')}</td><td style="white-space:nowrap">${valPill(x.validade)}</td><td class="r num">${x.qtd}</td></tr>`).join('')}</tbody></table>` : '<div class="empty">Nenhum produto em estoque vencido ou vencendo nos próximos 90 dias.</div>';
   const low = S.products.filter(p => stockOf(p, 'PY') <= 3 || stockOf(p, 'SP') <= 3).slice(0, 12);
   $('#lowStock').innerHTML = low.length ? `<table><thead><tr><th>Produto</th><th class="r">PY</th><th class="r">BR</th></tr></thead><tbody>${low.map(p => `<tr><td>${esc(p.nome)}</td>${['PY', 'SP'].map(l => `<td class="r"><span class="pill ${stockOf(p, l) <= 0 ? 'bad' : stockOf(p, l) <= 3 ? 'warn' : ''} num">${stockOf(p, l)}</span></td>`).join('')}</tr>`).join('')}</tbody></table>` : `<div class="empty">${S.products.length ? 'Nenhum produto com 3 unidades ou menos.' : 'Cadastre produtos em Produtos.'}</div>`;
   $('#dashImp').innerHTML = openImp.length ? `<table><thead><tr><th>Referência</th><th>Situação</th><th>Chegada</th><th class="r">Custo total</th></tr></thead><tbody>${openImp.slice(0, 8).map(i => `<tr><td>${esc(i.ref || '—')}</td><td>${esc(i.status)}</td><td class="num">${i.eta ? fDate(i.eta) : '—'}${i.eta && i.eta < today() ? ' <span class="pill bad">atrasada</span>' : ''}</td><td class="r num">${fm(impCalc(i).total, 'USD')}</td></tr>`).join('')}</tbody></table>` : '<div class="empty">Nenhuma importação em andamento.</div>';
@@ -499,7 +534,7 @@ function renderImp() {
 const FLAG_PY = '<img class="flag-ic" src="/flag-py.svg" alt="Bandeira do Paraguay">';
 const FLAG_BR = '<img class="flag-ic" src="/flag-br.svg" alt="Bandeira do Brasil">';
 $('#sFilter').oninput = renderStock; $('#sGrupo').onchange = renderStock; $('#sMarca').onchange = renderStock;
-const matchP = (p, f) => !f || [p.nome, p.codigo, p.lote, p.grupo, p.marca].some(x => (x || '').toLowerCase().includes(f));
+const matchP = (p, f) => !f || [p.nome, p.codigo, (p.lotes || []).map(x => x.lote).join(' '), p.grupo, p.marca].some(x => (x || '').toLowerCase().includes(f));
 /* ---------- groups and brands ---------- */
 const SEM_G = 'Sem grupo', SEM_M = 'Sem marca';
 const gOf = p => (p.grupo || '').trim() || SEM_G, mOf = p => (p.marca || '').trim() || SEM_M;
@@ -534,7 +569,7 @@ function renderStock() {
   const f = $('#sFilter').value.trim().toLowerCase(), L = S.products.filter(p => matchP(p, f) && gmMatch(p, $('#sGrupo'), $('#sMarca')));
   const cell = n => `<td class="r"><span class="pill num ${n <= 0 ? 'bad' : n <= 3 ? 'warn' : ''}">${nf0(n)}</span></td>`;
   const sumL = fn => nf0(L.reduce((a, p) => a + fn(p), 0));
-  $('#stockList').innerHTML = L.length ? `<table><thead><tr><th>Código</th><th>Produto</th><th>Marca</th><th>Lote</th><th>Validade</th><th class="r">Total</th><th class="r"><span class="row" style="justify-content:flex-end;gap:6px">${FLAG_PY}PY</span></th><th class="r"><span class="row" style="justify-content:flex-end;gap:6px">${FLAG_BR}BR</span></th></tr></thead><tbody>${groupedRows(L, 8, p => `<tr><td class="num">${esc(p.codigo || '')}</td><td>${esc(p.nome)}</td><td>${esc(p.marca || '—')}</td><td class="num">${esc(p.lote || '—')}</td><td style="white-space:nowrap">${valPill(p.validade)}</td><td class="r num"><b>${nf0(stockOf(p, 'PY') + stockOf(p, 'SP'))}</b></td>${cell(stockOf(p, 'PY'))}${cell(stockOf(p, 'SP'))}</tr>`, a => nf0(a.reduce((x, p) => x + stockOf(p, 'PY') + stockOf(p, 'SP'), 0)) + ' un.')}</tbody><tfoot><tr><td></td><td>Total</td><td></td><td></td><td></td><td class="r num">${sumL(p => stockOf(p, 'PY') + stockOf(p, 'SP'))}</td><td class="r num">${sumL(p => stockOf(p, 'PY'))}</td><td class="r num">${sumL(p => stockOf(p, 'SP'))}</td></tr></tfoot></table>`
+  $('#stockList').innerHTML = L.length ? `<table><thead><tr><th>Código</th><th>Produto</th><th>Marca</th><th>Lote</th><th>Validade</th><th class="r">Total</th><th class="r"><span class="row" style="justify-content:flex-end;gap:6px">${FLAG_PY}PY</span></th><th class="r"><span class="row" style="justify-content:flex-end;gap:6px">${FLAG_BR}BR</span></th></tr></thead><tbody>${groupedRows(L, 8, p => `<tr><td class="num">${esc(p.codigo || '')}</td><td>${esc(p.nome)}</td><td>${esc(p.marca || '—')}</td>${lotCells(p)}<td class="r num"><b>${nf0(stockOf(p, 'PY') + stockOf(p, 'SP'))}</b></td>${cell(stockOf(p, 'PY'))}${cell(stockOf(p, 'SP'))}</tr>`, a => nf0(a.reduce((x, p) => x + stockOf(p, 'PY') + stockOf(p, 'SP'), 0)) + ' un.')}</tbody><tfoot><tr><td></td><td>Total</td><td></td><td></td><td></td><td class="r num">${sumL(p => stockOf(p, 'PY') + stockOf(p, 'SP'))}</td><td class="r num">${sumL(p => stockOf(p, 'PY'))}</td><td class="r num">${sumL(p => stockOf(p, 'SP'))}</td></tr></tfoot></table>`
     : `<div class="empty">${S.products.length ? 'Nenhum produto encontrado.' : 'Nenhum produto cadastrado ainda.'}</div>`;
 }
 
@@ -555,7 +590,8 @@ function tabText(cur) {
   const groups = L.some(p => p.grupo); let lastG = null;
   L.forEach(p => {
     if (groups && gOf(p) !== lastG) { lastG = gOf(p); out.push((out[out.length - 1] === "" ? "" : "\n") + `*${(lastG === SEM_G ? "Outros" : lastG).toUpperCase()}*`); }
-    const extra = [$('#tVal').checked && p.validade ? 'val. ' + fVal(p.validade) : '', $('#tQty').checked ? qty(p) + ' un.' : ''].filter(Boolean).join(' · ');
+    const fl = firstLot(p, st === 'PY' || st === 'SP' ? st : '');
+    const extra = [$('#tVal').checked && fl?.validade ? 'val. ' + fVal(fl.validade) : '', $('#tQty').checked ? qty(p) + ' un.' : ''].filter(Boolean).join(' · ');
     out.push(`▪️ ${$('#tCode').checked && p.codigo ? p.codigo + ' · ' : ''}${p.nome}${extra ? ` (${extra})` : ''} — *${nMoney(priceFor(p, cur), cur)}*`);
   });
   out.push('', `_${L.length} produtos · valores sujeitos a alteração_`);
@@ -591,7 +627,7 @@ function renderStore(l) {
   const units = withStock.reduce((a, p) => a + qty(p), 0);
   const costUsd = withStock.reduce((a, p) => a + qty(p) * costOf(p, l), 0);
   const saleCur = withStock.reduce((a, p) => a + qty(p) * price(p), 0), saleUsd = conv(saleCur, cur, 'USD') || 0;
-  const expiring = withStock.filter(p => p.validade && daysTo(p.validade) <= 90).length, empty = S.products.filter(p => qty(p) <= 0).length;
+  const expiring = withStock.filter(p => lotsOf(p, l).some(x => x.validade && daysTo(x.validade) <= 90)).length, empty = S.products.filter(p => qty(p) <= 0).length;
   const k = (cls, head, v, sub) => `<div class="kpi ${cls}"><span class="lbl">${head}</span><span class="v">${v}</span><span class="s">${sub}</span></div>`;
   $('#sk-' + l).innerHTML =
     k(l.toLowerCase(), (l === 'PY' ? FLAG_PY : FLAG_BR) + ' Unidades em estoque', nf0(units), `${withStock.length} produtos com estoque`)
@@ -603,7 +639,7 @@ function renderStore(l) {
   const f = $('#sf-' + l).value.trim().toLowerCase();
   const L = S.products.filter(p => matchP(p, f) && gmMatch(p, $('#sg-g-' + l), $('#sg-m-' + l)) && (view === 'todos' || (view === 'com' ? qty(p) > 0 : qty(p) <= 0))).sort((a, b) => qty(b) - qty(a) || a.nome.localeCompare(b.nome));
   const tot = fn => L.reduce((a, p) => a + Math.max(0, qty(p)) * fn(p), 0);
-  $('#sl-' + l).innerHTML = L.length ? `<table><thead><tr><th>Código</th><th>Produto</th><th>Marca</th><th>Lote</th><th>Validade</th><th class="r">Qtd</th><th class="r">Custo un.</th><th class="r">Custo total</th><th class="r">Preço un.</th><th class="r">Valor de venda</th></tr></thead><tbody>${groupedRows(L, 10, p => `<tr><td class="num">${esc(p.codigo || '')}</td><td>${esc(p.nome)}</td><td>${esc(p.marca || '—')}</td><td class="num">${esc(p.lote || '—')}</td><td style="white-space:nowrap">${valPill(p.validade)}</td>
+  $('#sl-' + l).innerHTML = L.length ? `<table><thead><tr><th>Código</th><th>Produto</th><th>Marca</th><th>Lote</th><th>Validade</th><th class="r">Qtd</th><th class="r">Custo un.</th><th class="r">Custo total</th><th class="r">Preço un.</th><th class="r">Valor de venda</th></tr></thead><tbody>${groupedRows(L, 10, p => `<tr><td class="num">${esc(p.codigo || '')}</td><td>${esc(p.nome)}</td><td>${esc(p.marca || '—')}</td>${lotCells(p, l)}
       <td class="r"><span class="pill num ${qty(p) <= 0 ? 'bad' : qty(p) <= 3 ? 'warn' : ''}">${nf0(qty(p))}</span></td>
       <td class="r num">${fm(+p.custo || 0, 'USD')}<div class="hint">${fm(costIn(p, 'BRL'), 'BRL')}</div></td>
       <td class="r num">${fm(Math.max(0, qty(p)) * (+p.custo || 0), 'USD')}</td>
@@ -621,11 +657,35 @@ function fillP(p) {
   $('#pCode').value = p?.codigo || ''; $('#pName').value = p?.nome || ''; $('#pGrupo').value = p?.grupo || ''; $('#pMarca').value = p?.marca || '';
   $('#pCost').value = p?.custo ?? ''; $('#pPriceUsd').value = p?.precoUsd ?? ''; $('#pPriceBrl').value = p?.precoBrl || '';
   $('#pStPY').value = p ? stockOf(p, 'PY') : ''; $('#pStSP').value = p ? stockOf(p, 'SP') : '';
+  pLots = p ? (p.lotes || []).map(x => ({ loja: x.loja, lote: x.lote, val: fVal(x.validade), qtd: x.qtd })) : [];
+  $('#pLotsBox').hidden = !p; drawPLots();
 }
+// lot list of the product being edited, to fix the quantities by hand
+let pLots = [];
+function drawPLots() {
+  $('#pLots').innerHTML = pLots.map((x, i) => `<tr><td><select data-pl="${i}" data-k="loja"><option value="PY" ${x.loja === 'PY' ? 'selected' : ''}>Paraguay</option><option value="SP" ${x.loja === 'SP' ? 'selected' : ''}>São Paulo</option></select></td>
+    <td><input type="text" data-pl="${i}" data-k="lote" value="${esc(x.lote)}" maxlength="60" autocomplete="off"></td>
+    <td><input type="text" data-pl="${i}" data-k="val" value="${esc(x.val)}" inputmode="numeric" maxlength="7" placeholder="08/2029" autocomplete="off"></td>
+    <td class="r"><input type="number" data-pl="${i}" data-k="qtd" value="${x.qtd}" min="0" step="1" class="q"></td><td><button class="x" data-plx="${i}" type="button" aria-label="Remover">×</button></td></tr>`).join('')
+    || '<tr><td colspan="5" class="empty">Nenhum lote. Todo o estoque deste produto está sem lote.</td></tr>';
+}
+$('#pLotAdd').onclick = () => { pLots.push({ loja: 'PY', lote: '', val: '', qtd: 0 }); drawPLots(); $$('#pLots input[data-k="lote"]').pop()?.focus(); };
+$('#pLots').addEventListener('input', e => {
+  const x = pLots[+e.target.dataset.pl]; if (!x) return;
+  if (e.target.dataset.k === 'val') { const d = e.target.value.replace(/\D/g, '').slice(0, 6); e.target.value = d.length > 2 ? d.slice(0, 2) + '/' + d.slice(2) : d; }
+  x[e.target.dataset.k] = e.target.dataset.k === 'qtd' ? +e.target.value || 0 : e.target.value;
+});
+$('#pLots').addEventListener('change', e => { const x = pLots[+e.target.dataset.pl]; if (x && e.target.dataset.k === 'loja') x.loja = e.target.value; });
+$('#pLots').addEventListener('click', e => { const b = e.target.closest('[data-plx]'); if (b) { pLots.splice(+b.dataset.plx, 1); drawPLots(); } });
 $('#pCancel').onclick = () => fillP(null);
 $('#pSave').onclick = async () => {
   if (!$('#pName').value.trim()) return toast('Informe o nome do produto.', true);
   const doc = { codigo: $('#pCode').value, nome: $('#pName').value, grupo: $('#pGrupo').value, marca: $('#pMarca').value, custo: +$('#pCost').value || 0, precoUsd: +$('#pPriceUsd').value || 0, precoBrl: +$('#pPriceBrl').value || 0, estoque: { PY: +$('#pStPY').value || 0, SP: +$('#pStSP').value || 0 } };
+  if (editP) {
+    const badV = pLots.find(x => x.val.trim() && !monthEnd(x.val));
+    if (badV) return toast('Validade de lote inválida. Use mês e ano, ex.: 08/2029.', true);
+    doc.lotes = pLots.filter(x => x.qtd > 0 && (x.lote.trim() || x.val.trim())).map(x => ({ loja: x.loja, lote: x.lote.trim(), validade: monthEnd(x.val), qtd: x.qtd }));
+  }
   if (await act(() => editP ? api('/products/' + editP, 'PUT', doc) : api('/products', 'POST', doc), 'Produto salvo.')) fillP(null);
 };
 document.addEventListener('click', async e => {
@@ -918,7 +978,7 @@ $('#oSave').onclick = async () => {
 function quoteToCart(q) {
   const c = S.carts[q.loja];
   if (c.items.length && !confirm('O carrinho desta loja já tem produtos. Trocar pelos itens do orçamento?')) return;
-  c.items = q.itens.map(i => { const p = S.products.find(x => x.id === i.pid); return { pid: i.pid, nome: i.nome, codigo: i.codigo || '', lote: p?.lote || i.lote || '', validade: p?.validade || i.validade || '', qtd: i.qtd, preco: i.preco }; });
+  c.items = q.itens.map(i => { const p = S.products.find(x => x.id === i.pid); return { pid: i.pid, nome: i.nome, codigo: i.codigo || '', lk: '', qtd: i.qtd, preco: i.preco }; });
   c.cur = q.moeda; c.quoteId = q.id;
   show(q.loja); $('#cli-' + q.loja).value = q.cliente || ''; renderCart(q.loja);
   toast(`Orçamento nº ${q.id} no carrinho. Confira e finalize a venda.`);
@@ -958,21 +1018,29 @@ function renderOrc() {
 $('#trDate').value = today();
 const trfPct = () => Math.max(0, +$('#trFrete').value || 0);
 const trfLeft = p => stockOf(p, 'PY') - S.trfItems.filter(i => i.pid === p.id).reduce((a, i) => a + i.qtd, 0);
+// what is left of one lot in PY after the items already on the list ('' = the lot that expires first)
+const trfLotLeft = (p, k) => { const x = k === lotKey({}) ? { qtd: noLotQty(p, 'PY') } : lotsOf(p, 'PY').find(y => lotKey(y) === k); return (x ? x.qtd : 0) - S.trfItems.filter(i => i.pid === p.id && i.lk === k).reduce((a, i) => a + i.qtd, 0); };
+function fillTrLote() {
+  const p = S.products.find(x => x.id === +$('#trProd').value), L = p ? lotsOf(p, 'PY') : [], free = p ? noLotQty(p, 'PY') : 0;
+  $('#trLote').innerHTML = '<option value="">Vence primeiro</option>' + L.map(x => `<option value="${esc(lotKey(x))}">${esc(lotName(x))} · ${x.qtd} un.</option>`).join('') + (L.length && free > 0 ? `<option value="${esc(lotKey({}))}">Sem lote · ${free} un.</option>` : '');
+}
+$('#trProd').onchange = fillTrLote;
 $('#trAdd').onclick = () => {
-  const p = S.products.find(x => x.id === +$('#trProd').value), q = +$('#trQty').value;
+  const p = S.products.find(x => x.id === +$('#trProd').value), q = +$('#trQty').value, k = $('#trLote').value;
   if (!p) return toast('Escolha um produto com estoque no Paraguay.', true);
   if (!(q > 0)) return toast('Informe a quantidade.', true);
   if (q > trfLeft(p)) return toast(`O Paraguay só tem ${trfLeft(p)} un. de ${p.nome}.`, true);
-  const ex = S.trfItems.find(i => i.pid === p.id);
-  if (ex) ex.qtd += q; else S.trfItems.push({ pid: p.id, nome: p.nome, qtd: q, custo: +p.custo || 0 });
-  $('#trQty').value = 1; $('#trProd').value = ''; renderTrf();
+  if (k && q > trfLotLeft(p, k)) return toast(`Este lote só tem ${trfLotLeft(p, k)} un. no Paraguay.`, true);
+  const ex = S.trfItems.find(i => i.pid === p.id && i.lk === k);
+  if (ex) ex.qtd += q; else S.trfItems.push({ pid: p.id, nome: p.nome, qtd: q, custo: +p.custo || 0, lk: k });
+  $('#trQty').value = 1; $('#trProd').value = ''; fillTrLote(); renderTrf();
 };
 $('#trFrete').oninput = () => renderTrfItems();
 $('#trItems').onclick = e => { const b = e.target.closest('[data-ti]'); if (b) { S.trfItems.splice(+b.dataset.ti, 1); renderTrf(); } };
 function renderTrfItems() {
   const fp = trfPct();
-  $('#trItems').innerHTML = S.trfItems.map((i, k) => `<tr><td>${esc(i.nome)}</td><td class="r num">${i.qtd}</td><td class="r num">${fm(i.custo, 'USD')}</td><td class="r num"><b>${fm(i.custo * (1 + fp / 100), 'USD')}</b><div class="hint">${fm(conv(i.custo * (1 + fp / 100), 'USD', 'BRL'), 'BRL')}</div></td><td class="r num">${fm(i.qtd * i.custo * (1 + fp / 100), 'USD')}</td><td><button class="x" data-ti="${k}" aria-label="Remover">×</button></td></tr>`).join('')
-    || '<tr><td colspan="6" class="empty">Adicione os produtos que vão do Paraguay para São Paulo.</td></tr>';
+  $('#trItems').innerHTML = S.trfItems.map((i, k) => `<tr><td>${esc(i.nome)}</td><td>${i.lk ? esc(lotName((([lote, validade]) => ({ lote, validade }))(JSON.parse(i.lk)))) : '<span class="hint">Vence primeiro</span>'}</td><td class="r num">${i.qtd}</td><td class="r num">${fm(i.custo, 'USD')}</td><td class="r num"><b>${fm(i.custo * (1 + fp / 100), 'USD')}</b><div class="hint">${fm(conv(i.custo * (1 + fp / 100), 'USD', 'BRL'), 'BRL')}</div></td><td class="r num">${fm(i.qtd * i.custo * (1 + fp / 100), 'USD')}</td><td><button class="x" data-ti="${k}" aria-label="Remover">×</button></td></tr>`).join('')
+    || '<tr><td colspan="7" class="empty">Adicione os produtos que vão do Paraguay para São Paulo.</td></tr>';
   const sub = S.trfItems.reduce((a, i) => a + i.qtd * i.custo, 0), fv = sub * fp / 100, t = sub + fv, un = S.trfItems.reduce((a, i) => a + i.qtd, 0);
   $('#trTotal').textContent = S.trfItems.length ? `${fm(t, 'USD')}  ·  ${fm(conv(t, 'USD', 'BRL'), 'BRL')}` : '—';
   $('#trTotalSub').textContent = S.trfItems.length ? `${un} un. · mercadoria ${fm(sub, 'USD')} + frete ${nNum(fp)}% ${fm(fv, 'USD')} (${fm(conv(fv, 'USD', 'BRL'), 'BRL')})` : '';
@@ -980,19 +1048,19 @@ function renderTrfItems() {
 $('#trSave').onclick = async () => {
   if (!S.trfItems.length) return toast('Adicione pelo menos um produto.', true);
   $('#trSave').disabled = true;
-  const ok = await act(() => api('/transfers', 'POST', { data: $('#trDate').value, freteiro: $('#trFreteiro').value, fretePct: trfPct(), itens: S.trfItems.map(i => ({ pid: i.pid, qtd: i.qtd })) }), 'Transferência registrada. Estoque movido para São Paulo.');
+  const ok = await act(() => api('/transfers', 'POST', { data: $('#trDate').value, freteiro: $('#trFreteiro').value, fretePct: trfPct(), itens: S.trfItems.map(i => ({ pid: i.pid, qtd: i.qtd, lotePref: i.lk ? (([lote, validade]) => ({ lote, validade }))(JSON.parse(i.lk)) : null })) }), 'Transferência registrada. Estoque movido para São Paulo.');
   $('#trSave').disabled = false;
   if (ok) { S.trfItems = []; $('#trFreteiro').value = ''; $('#trFrete').value = ''; renderTrf(); }
 };
 function renderTrf() {
   const sel = $('#trProd'), v = sel.value, av = S.products.filter(p => trfLeft(p) > 0);
   if (document.activeElement !== sel) {
-    sel.innerHTML = `<option value="">${av.length ? `Produtos com estoque no Paraguay (${av.length})` : 'Nenhum produto com estoque no Paraguay'}</option>` + av.map(p => `<option value="${p.id}">${esc((p.codigo ? p.codigo + ' · ' : '') + p.nome)}${p.lote ? ' · lote ' + esc(p.lote) : ''} — ${trfLeft(p)} un. no PY</option>`).join('');
+    sel.innerHTML = `<option value="">${av.length ? `Produtos com estoque no Paraguay (${av.length})` : 'Nenhum produto com estoque no Paraguay'}</option>` + av.map(p => `<option value="${p.id}">${esc((p.codigo ? p.codigo + ' · ' : '') + p.nome)}${firstLot(p, 'PY')?.lote ? ' · lote ' + esc(firstLot(p, 'PY').lote) : ''} — ${trfLeft(p)} un. no PY</option>`).join('');
     sel.value = av.some(p => p.id === +v) ? v : '';
   }
   renderTrfItems();
   const L = S.transfers.slice(0, 200);
-  $('#trfList').innerHTML = L.length ? `<table><thead><tr><th>Data</th><th>Itens</th><th>Freteiro</th><th class="r">Frete</th><th>Registrado por</th><th class="r">Total em SP</th><th></th></tr></thead><tbody>${L.map(t => `<tr class="${t.cancelada ? 'cancel' : ''}"><td class="num">${fDate(t.data)}</td><td>${(t.itens || []).map(i => `${i.qtd}× ${esc(i.nome)}`).join(', ')}</td><td>${esc(t.freteiro || '—')}</td><td class="r num">${nNum(+t.fretePct || 0)}%<div class="hint">${fm(+t.freteValor || 0, 'USD')}</div></td><td>${esc(t.criadoPor)}</td><td class="r num"><b>${fm(t.total, 'USD')}</b><div class="hint">${fm(conv(t.total, 'USD', 'BRL'), 'BRL')}</div></td><td class="r" style="white-space:nowrap">${t.cancelada ? '<span class="pill bad">cancelada</span>' + (can('excluir') ? ` <button class="btn small danger" data-delt="${t.id}">Excluir</button>` : '') : can('cancelar') ? `<button class="btn small danger" data-cancelt="${t.id}">Cancelar</button>` : ''}</td></tr>`).join('')}</tbody></table>`
+  $('#trfList').innerHTML = L.length ? `<table><thead><tr><th>Data</th><th>Itens</th><th>Freteiro</th><th class="r">Frete</th><th>Registrado por</th><th class="r">Total em SP</th><th></th></tr></thead><tbody>${L.map(t => `<tr class="${t.cancelada ? 'cancel' : ''}"><td class="num">${fDate(t.data)}</td><td>${(t.itens || []).map(i => `${i.qtd}× ${esc(i.nome)}${i.lote ? ` <span class="hint">(lote ${esc(i.lote)})</span>` : ''}`).join(', ')}</td><td>${esc(t.freteiro || '—')}</td><td class="r num">${nNum(+t.fretePct || 0)}%<div class="hint">${fm(+t.freteValor || 0, 'USD')}</div></td><td>${esc(t.criadoPor)}</td><td class="r num"><b>${fm(t.total, 'USD')}</b><div class="hint">${fm(conv(t.total, 'USD', 'BRL'), 'BRL')}</div></td><td class="r" style="white-space:nowrap">${t.cancelada ? '<span class="pill bad">cancelada</span>' + (can('excluir') ? ` <button class="btn small danger" data-delt="${t.id}">Excluir</button>` : '') : can('cancelar') ? `<button class="btn small danger" data-cancelt="${t.id}">Cancelar</button>` : ''}</td></tr>`).join('')}</tbody></table>`
     : '<div class="empty">Nenhuma transferência registrada.</div>';
 }
 

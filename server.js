@@ -94,7 +94,8 @@ const need = p => (req, res, next) => (has(req.user, p) ? next() : res.status(40
 const canStore = (u, l) => has(u, 'vendas_' + l);
 
 const pubUser = u => ({ id: u.id, login: u.login, nome: u.nome, papel: u.papel, loja: u.loja, telefone: u.telefone, documento: u.documento, comissao: u.comissao, ativo: u.ativo, permissoes: perms(u) });
-const mapProduct = p => ({ id: p.id, codigo: p.codigo, nome: p.nome, grupo: p.grupo, marca: p.marca, lote: p.lote, validade: p.validade || '', custo: p.custo, custoSp: p.custo_sp, precoUsd: p.preco_usd, precoBrl: p.preco_brl, estoque: { PY: p.estoque_py, SP: p.estoque_sp } });
+// lote/validade of a product = its lot that expires first among those in stock
+const mapProduct = (p, lots = []) => ({ id: p.id, codigo: p.codigo, nome: p.nome, grupo: p.grupo, marca: p.marca, lotes: lots, lote: lots[0]?.lote || '', validade: lots[0]?.validade || '', custo: p.custo, custoSp: p.custo_sp, precoUsd: p.preco_usd, precoBrl: p.preco_brl, estoque: { PY: p.estoque_py, SP: p.estoque_sp } });
 const mapQuote = q => ({ id: q.id, loja: q.loja, data: q.data, ts: q.ts, moeda: q.moeda, cliente: q.cliente, obs: q.obs, validade: q.validade || '', itens: q.itens, total: q.total, cotacao: q.cotacao, vendedorNome: q.vendedor_nome, status: q.status, vendaId: q.venda_id });
 const mapTransfer = t => ({ id: t.id, data: t.data, ts: t.ts, itens: t.itens, subtotal: t.subtotal, fretePct: t.frete_pct, freteValor: t.frete_valor, freteiro: t.freteiro, total: t.total, criadoPor: t.criado_por, cancelada: t.cancelada, canceladaPor: t.cancelada_por });
 const mapSale = s => ({ id: s.id, loja: s.loja, data: s.data, ts: s.ts, moeda: s.moeda, total: s.total, cotacao: s.cotacao, pagamento: s.pagamento, cliente: s.cliente, itens: s.itens, custoUsd: s.custo_usd, vendedorId: s.vendedor_id, vendedorNome: s.vendedor_nome, cancelada: s.cancelada, canceladaPor: s.cancelada_por });
@@ -177,10 +178,11 @@ app.get('/api/data', auth, h(async (req, res) => {
   const u = req.user, allSales = has(u, 'dash');
   const stores = LOJAS.filter(l => canStore(u, l));
   const since = Date.now() - 400 * 864e5;
-  const [settings, hist, products, sales] = await Promise.all([
+  const [settings, hist, products, lotRows, sales] = await Promise.all([
     pool.query('select * from settings where id=1'),
     pool.query('select * from rate_history order by dia desc limit 200'),
     pool.query('select * from products where ativo order by nome'),
+    pool.query(`select product_id, loja, lote, validade, qtd from stock_lots where qtd > 0 order by validade = '', validade, lote`),
     allSales
       ? pool.query('select * from sales where ts >= $1 order by ts desc', [since])
       : pool.query('select * from sales where ts >= $1 and loja = any($2) order by ts desc', [since, stores]),
@@ -191,7 +193,7 @@ app.get('/api/data', auth, h(async (req, res) => {
     me: pubUser(u),
     settings: st ? { cotacao: st.cotacao, atualizadoEm: st.atualizado_em, atualizadoPor: st.atualizado_por, spread: st.spread, auto: st.auto, binance: st.binance, binanceEm: st.binance_em, binanceErro: st.binance_erro, nota: st.nota } : null,
     historico: hist.rows.map(r => ({ d: r.dia, v: r.valor, por: r.por, ts: r.ts })),
-    products: products.rows.map(mapProduct),
+    products: products.rows.map(p => mapProduct(p, lotRows.rows.filter(l => l.product_id === p.id).map(l => ({ loja: l.loja, lote: l.lote, validade: l.validade, qtd: +l.qtd })))),
     sales: sales.rows.map(mapSale),
     purchases: [], imports: [], users: [],
   };
@@ -285,6 +287,53 @@ app.post('/api/cambio/config', auth, need('cambio'), h(async (req, res) => {
   res.json({ ok: true, erro: rows[0].binance_erro });
 }));
 
+// ---------- lotes ----------
+// stock_lots holds the units of each lot in each store; whatever the product stock has beyond the sum of
+// its lots is stock without a lot. Every movement goes through addLot/takeLots so the two stay in step.
+const r3 = n => Math.round((+n || 0) * 1000) / 1000;
+const monthLast = v => isDate(v) ? v.slice(0, 8) + String(new Date(+v.slice(0, 4), +v.slice(5, 7), 0).getDate()).padStart(2, '0') : '';
+async function addLot(c, pid, loja, lote, validade, qtd) {
+  lote = str(lote, 60); validade = validade ? String(validade).slice(0, 10) : '';
+  if ((!lote && !validade) || !(qtd > 0)) return;
+  await c.query(`insert into stock_lots (product_id, loja, lote, validade, qtd) values ($1,$2,$3,$4,$5)
+    on conflict (product_id, loja, lote, validade) do update set qtd = stock_lots.qtd + excluded.qtd`, [pid, loja, lote, validade, qtd]);
+}
+// takes qtd units out of the lots of a product in one store and says which lots they came from.
+// pref = the lot the user picked ({lote:'', validade:''} means stock without a lot); otherwise the lot that
+// expires first goes first. Call it before changing the product stock.
+async function takeLots(c, pid, loja, qtd, pref, noLotFirst) {
+  const col = loja === 'PY' ? 'estoque_py' : 'estoque_sp';
+  const { rows: pr } = await c.query(`select ${col} as e from products where id=$1`, [pid]);
+  const lots = (await c.query(`select id, lote, validade, qtd from stock_lots where product_id=$1 and loja=$2 and qtd > 0 order by validade = '', validade, id for update`, [pid, loja])).rows;
+  let free = r3(Math.max(0, (+pr[0]?.e || 0) - lots.reduce((a, l) => a + +l.qtd, 0))), left = r3(qtd);
+  const parts = [], put = (lote, validade, q) => { const x = parts.find(p => p.lote === lote && p.validade === validade); if (x) x.qtd = r3(x.qtd + q); else parts.push({ lote, validade, qtd: r3(q) }); };
+  const fromFree = () => { const t = Math.min(left, free); if (t > 0) { put('', '', t); free = r3(free - t); left = r3(left - t); } };
+  const noLot = noLotFirst || (pref && !pref.lote && !pref.validade);
+  if (pref && !noLot) { const i = lots.findIndex(l => l.lote === (pref.lote || '') && l.validade === (pref.validade || '')); if (i > 0) lots.unshift(...lots.splice(i, 1)); }
+  if (noLot) fromFree();
+  for (const l of lots) {
+    if (left <= 0) break;
+    const t = Math.min(left, +l.qtd);
+    await c.query('update stock_lots set qtd = qtd - $1 where id=$2', [t, l.id]);
+    put(l.lote, l.validade, t); left = r3(left - t);
+  }
+  fromFree();
+  if (left > 0) put('', '', left); // selling more than there is: the stock goes negative, without a lot
+  await c.query('delete from stock_lots where product_id=$1 and qtd <= 0', [pid]);
+  return parts;
+}
+// when the stock is typed in by hand below the sum of its lots, the lots that expire first give way
+async function fitLots(c, pid) {
+  const { rows } = await c.query('select estoque_py, estoque_sp from products where id=$1', [pid]);
+  for (const loja of LOJAS) {
+    const lots = (await c.query(`select id, qtd from stock_lots where product_id=$1 and loja=$2 order by validade = '', validade, id`, [pid, loja])).rows;
+    let over = r3(lots.reduce((a, l) => a + +l.qtd, 0) - Math.max(0, +rows[0][loja === 'PY' ? 'estoque_py' : 'estoque_sp']));
+    for (const l of lots) { if (over <= 0) break; const t = Math.min(over, +l.qtd); await c.query('update stock_lots set qtd = qtd - $1 where id=$2', [t, l.id]); over = r3(over - t); }
+  }
+  await c.query('delete from stock_lots where product_id=$1 and qtd <= 0', [pid]);
+}
+const prefOf = i => (i.lotePref && typeof i.lotePref === 'object') ? { lote: str(i.lotePref.lote, 60), validade: String(i.lotePref.validade || '').slice(0, 10) } : null;
+
 // ---------- produtos ----------
 function productBody(b) {
   const nome = str(b.nome); if (!nome) bad('Informe o nome do produto.');
@@ -304,7 +353,16 @@ app.post('/api/products', auth, need('produtos'), h(async (req, res) => {
 app.put('/api/products/:id', auth, need('produtos'), h(async (req, res) => {
   const v = productBody(req.body), id = +req.params.id;
   if (await codeTaken(v[0], id)) bad('Já existe um produto com este código.');
-  await pool.query(`update products set codigo=$1,nome=$2,custo=$3,preco_usd=$4,preco_brl=$5,estoque_py=$6,estoque_sp=$7,grupo=$8,marca=$9 where id=$10`, [...v, id]);
+  const lotes = Array.isArray(req.body.lotes) ? req.body.lotes.slice(0, 200).map(l => ({ loja: LOJAS.includes(l.loja) ? l.loja : bad('Loja do lote inválida.'), lote: str(l.lote, 60), validade: l.validade ? (monthLast(l.validade) || bad('Validade do lote inválida. Use mês e ano.')) : '', qtd: num(l.qtd) })).filter(l => l.qtd > 0 && (l.lote || l.validade)) : null;
+  if (lotes) for (const loja of LOJAS) {
+    const sum = r3(lotes.filter(l => l.loja === loja).reduce((a, l) => a + l.qtd, 0)), est = loja === 'PY' ? v[5] : v[6];
+    if (sum > est) bad(`Os lotes de ${loja === 'PY' ? 'Paraguay' : 'São Paulo'} somam ${sum} un., mais que o estoque de ${est} un.`);
+  }
+  await tx(async c => {
+    await c.query(`update products set codigo=$1,nome=$2,custo=$3,preco_usd=$4,preco_brl=$5,estoque_py=$6,estoque_sp=$7,grupo=$8,marca=$9 where id=$10`, [...v, id]);
+    if (lotes) { await c.query('delete from stock_lots where product_id=$1', [id]); for (const l of lotes) await addLot(c, id, l.loja, l.lote, l.validade, l.qtd); }
+    await fitLots(c, id);
+  });
   bump(); res.json({ ok: true });
 }));
 app.delete('/api/products/:id', auth, need('produtos'), h(async (req, res) => {
@@ -331,10 +389,14 @@ app.post('/api/sales', auth, h(async (req, res) => {
       if (!(preco > 0)) bad('Há item sem preço. Informe o preço antes de registrar.');
       if (i.pid) {
         const col = loja === 'PY' ? 'estoque_py' : 'estoque_sp';
-        const { rows } = await c.query(`update products set ${col} = ${col} - $1 where id=$2 and ativo returning *`, [qtd, +i.pid]);
-        const p = rows[0]; if (!p) bad('Produto não encontrado: ' + str(i.nome));
+        const { rows: found } = await c.query('select id from products where id=$1 and ativo for update', [+i.pid]);
+        if (!found[0]) bad('Produto não encontrado: ' + str(i.nome));
+        const parts = await takeLots(c, +i.pid, loja, qtd, prefOf(i));
+        const { rows } = await c.query(`update products set ${col} = ${col} - $1 where id=$2 returning *`, [qtd, +i.pid]);
+        const p = rows[0];
         custoUsd += qtd * (loja === 'SP' && p.custo_sp != null ? p.custo_sp : p.custo);
-        itens.push({ pid: p.id, nome: p.nome, codigo: p.codigo, lote: p.lote, validade: p.validade || '', qtd, preco });
+        // one line per lot the units came from, so the note shows each lot and a cancel puts them back
+        for (const part of parts) itens.push({ pid: p.id, nome: p.nome, codigo: p.codigo, lote: part.lote, validade: part.validade, qtd: part.qtd, preco, lt: 1 });
       } else {
         itens.push({ pid: null, nome: str(i.nome, 120) || 'Item avulso', codigo: '', lote: '', validade: '', qtd, preco });
       }
@@ -354,7 +416,11 @@ app.post('/api/sales/:id/cancel', auth, need('cancelar'), h(async (req, res) => 
     const { rows } = await c.query('select * from sales where id=$1 for update', [+req.params.id]);
     const s = rows[0]; if (!s) bad('Venda não encontrada.'); if (s.cancelada) bad('Esta venda já foi cancelada.');
     const col = s.loja === 'PY' ? 'estoque_py' : 'estoque_sp';
-    for (const i of s.itens) if (i.pid) await c.query(`update products set ${col} = ${col} + $1 where id=$2`, [i.qtd, i.pid]);
+    for (const i of s.itens) if (i.pid) {
+      const r = await c.query(`update products set ${col} = ${col} + $1 where id=$2`, [i.qtd, i.pid]);
+      // sales made before lots were tracked only carried a copy of the product's last lot
+      if (r.rowCount && i.lt) await addLot(c, i.pid, s.loja, i.lote, i.validade, i.qtd);
+    }
     await c.query('update sales set cancelada=true, cancelada_por=$1, cancelada_em=$2 where id=$3', [req.user.nome, Date.now(), s.id]);
   });
   bump(); res.json({ ok: true });
@@ -370,7 +436,10 @@ app.post('/api/purchases/:id/cancel', auth, need('cancelar'), need('compras'), h
     const { rows } = await c.query('select * from purchases where id=$1 for update', [+req.params.id]);
     const p = rows[0]; if (!p) bad('Entrada não encontrada.'); if (p.cancelada) bad('Esta entrada já foi cancelada.');
     const col = p.loja === 'PY' ? 'estoque_py' : 'estoque_sp';
-    for (const i of p.itens) if (i.pid) await c.query(`update products set ${col} = ${col} - $1 where id=$2`, [i.qtd, i.pid]);
+    for (const i of p.itens) if (i.pid) {
+      await takeLots(c, i.pid, p.loja, i.qtd, { lote: i.lote || '', validade: i.validade || '' });
+      await c.query(`update products set ${col} = ${col} - $1 where id=$2`, [i.qtd, i.pid]);
+    }
     await c.query('update purchases set cancelada=true, cancelada_por=$1, cancelada_em=$2 where id=$3', [req.user.nome, Date.now(), p.id]);
   });
   bump(); res.json({ ok: true });
@@ -385,7 +454,10 @@ app.post('/api/imports/:id/cancel', auth, need('cancelar'), need('importacoes'),
   await tx(async c => {
     const { rows } = await c.query('select * from imports where id=$1 for update', [+req.params.id]);
     const imp = rows[0]; if (!imp) bad('Importação não encontrada.'); if (imp.cancelada) bad('Esta importação já foi cancelada.');
-    if (imp.recebida) for (const i of imp.itens) if (i.pid) await c.query('update products set estoque_py = estoque_py - $1 where id=$2', [i.qtd, i.pid]);
+    if (imp.recebida) for (const i of imp.itens) if (i.pid) {
+      await takeLots(c, i.pid, 'PY', i.qtd, null, true);
+      await c.query('update products set estoque_py = estoque_py - $1 where id=$2', [i.qtd, i.pid]);
+    }
     await c.query(`update imports set cancelada=true, status='Cancelada', cancelada_por=$1, cancelada_em=$2 where id=$3`, [req.user.nome, Date.now(), imp.id]);
   });
   bump(); res.json({ ok: true });
@@ -459,11 +531,12 @@ app.post('/api/purchases', auth, need('compras'), h(async (req, res) => {
     const itens = [];
     for (const i of itensIn) {
       const qtd = num(i.qtd), custo = r2(Math.max(0, num(i.custo))), lote = str(i.lote, 60);
-      const validade = i.validade ? (isDate(i.validade) ? i.validade.slice(0, 8) + String(new Date(+i.validade.slice(0, 4), +i.validade.slice(5, 7), 0).getDate()).padStart(2, '0') : bad('Validade inválida. Use mês e ano.')) : null;
+      const validade = i.validade ? (monthLast(i.validade) || bad('Validade inválida. Use mês e ano.')) : '';
       const custoUsd = r2((moeda === 'USD' ? custo : custo / rate) * (1 + fretePct / 100));
-      const { rows } = await c.query(`update products set ${col} = ${col} + $1, custo = $2${loja === 'SP' ? ', custo_sp = $2' : ''}, lote = coalesce(nullif($4, ''), lote), validade = coalesce($5, validade) where id=$3 and ativo returning id, nome`, [qtd, custoUsd, +i.pid, lote, validade]);
+      const { rows } = await c.query(`update products set ${col} = ${col} + $1, custo = $2${loja === 'SP' ? ', custo_sp = $2' : ''} where id=$3 and ativo returning id, nome`, [qtd, custoUsd, +i.pid]);
       if (!rows[0]) bad('Produto não encontrado.');
-      itens.push({ pid: rows[0].id, nome: rows[0].nome, qtd, custo, lote, validade: validade || '' });
+      await addLot(c, rows[0].id, loja, lote, validade, qtd);
+      itens.push({ pid: rows[0].id, nome: rows[0].nome, qtd, custo, lote, validade });
     }
     const subtotal = r2(itens.reduce((a, i) => a + i.qtd * i.custo, 0)), freteValor = r2(subtotal * fretePct / 100);
     const r = await c.query(`insert into purchases (data,ts,fornecedor,loja,moeda,itens,subtotal,frete_pct,frete_valor,freteiro,total,cotacao,criado_por,pagamento)
@@ -491,7 +564,9 @@ app.post('/api/quotes', auth, h(async (req, res) => {
     if (i.pid) {
       const { rows } = await pool.query('select * from products where id=$1 and ativo', [+i.pid]);
       const p = rows[0]; if (!p) bad('Produto não encontrado: ' + str(i.nome));
-      itens.push({ pid: p.id, nome: p.nome, codigo: p.codigo, lote: p.lote, validade: p.validade || '', qtd, preco });
+      // the quote shows the lot that would go out first in that store
+      const { rows: lt } = await pool.query(`select lote, validade from stock_lots where product_id=$1 and loja=$2 and qtd > 0 order by validade = '', validade, id limit 1`, [p.id, loja]);
+      itens.push({ pid: p.id, nome: p.nome, codigo: p.codigo, lote: lt[0]?.lote || '', validade: lt[0]?.validade || '', qtd, preco });
     } else itens.push({ pid: null, nome: str(i.nome, 120) || 'Item avulso', codigo: '', lote: '', validade: '', qtd, preco });
   }
   const dias = Math.min(365, Math.max(1, Math.round(num(b.validadeDias, 7))));
@@ -531,8 +606,10 @@ app.post('/api/transfers', auth, need('compras'), h(async (req, res) => {
       const p = rows[0]; if (!p) bad('Produto não encontrado.');
       if (+p.estoque_py < qtd) bad(`Estoque insuficiente no Paraguay: ${p.nome} tem ${+p.estoque_py} un.`);
       const custo = r2(p.custo), custoSp = r2(custo * (1 + fretePct / 100));
+      const parts = await takeLots(c, p.id, 'PY', qtd, prefOf(i));
+      for (const part of parts) await addLot(c, p.id, 'SP', part.lote, part.validade, part.qtd);
       await c.query('update products set estoque_py = estoque_py - $1, estoque_sp = estoque_sp + $1, custo_sp = $2 where id=$3', [qtd, custoSp, p.id]);
-      itens.push({ pid: p.id, nome: p.nome, qtd, custo, custoSp });
+      for (const part of parts) itens.push({ pid: p.id, nome: p.nome, qtd: part.qtd, custo, custoSp, lote: part.lote, validade: part.validade });
     }
     const subtotal = r2(itens.reduce((a, i) => a + i.qtd * i.custo, 0)), freteValor = r2(subtotal * fretePct / 100);
     const r = await c.query(`insert into transfers (data,ts,itens,subtotal,frete_pct,frete_valor,freteiro,total,criado_por) values ($1,$2,$3,$4,$5,$6,$7,$8,$9) returning *`,
@@ -546,7 +623,11 @@ app.post('/api/transfers/:id/cancel', auth, need('cancelar'), need('compras'), h
   await tx(async c => {
     const { rows } = await c.query('select * from transfers where id=$1 for update', [+req.params.id]);
     const t = rows[0]; if (!t) bad('Transferência não encontrada.'); if (t.cancelada) bad('Esta transferência já foi cancelada.');
-    for (const i of t.itens) if (i.pid) await c.query('update products set estoque_sp = estoque_sp - $1, estoque_py = estoque_py + $1 where id=$2', [i.qtd, i.pid]);
+    for (const i of t.itens) if (i.pid) {
+      const parts = await takeLots(c, i.pid, 'SP', i.qtd, { lote: i.lote || '', validade: i.validade || '' });
+      for (const part of parts) await addLot(c, i.pid, 'PY', part.lote, part.validade, part.qtd);
+      await c.query('update products set estoque_sp = estoque_sp - $1, estoque_py = estoque_py + $1 where id=$2', [i.qtd, i.pid]);
+    }
     await c.query('update transfers set cancelada=true, cancelada_por=$1, cancelada_em=$2 where id=$3', [req.user.nome, Date.now(), t.id]);
   });
   bump(); res.json({ ok: true });

@@ -183,6 +183,11 @@
             <label class="field"><span class="lbl">Estoque Paraguay</span><input type="number" id="pStPY" step="1"></label>
             <label class="field"><span class="lbl">Estoque São Paulo</span><input type="number" id="pStSP" step="1"></label>
           </div>
+          <div id="pLotsBox" class="plots" hidden>
+            <div class="row between"><span class="lbl">Lotes em estoque</span><button class="btn small" id="pLotAdd" type="button">Adicionar lote</button></div>
+            <div class="tablewrap"><table><thead><tr><th>Loja</th><th>Lote</th><th>Validade</th><th class="r">Quantidade</th><th></th></tr></thead><tbody id="pLots"></tbody></table></div>
+            <div class="hint">Compras, vendas e transferências já movem os lotes sozinhas. Use esta lista só para corrigir. O que passar da soma dos lotes fica como “sem lote”.</div>
+          </div>
           <div class="row actions"><button class="btn primary" id="pSave">Salvar produto</button><button class="btn" id="pCancel" hidden>Cancelar edição</button><span class="hint">Sem preço fixo em R$, o valor em reais acompanha o dólar automaticamente.</span></div>
         </div>
         <div class="card">
@@ -210,7 +215,7 @@
             <label class="field"><span class="lbl">Produto</span><select id="bProd"></select></label>
             <label class="field"><span class="lbl">Quantidade</span><input type="number" id="bQty" min="1" value="1"></label>
             <label class="field"><span class="lbl">Custo unitário</span><input type="number" id="bCost" min="0" step="0.01"></label>
-            <label class="field"><span class="lbl">Lote</span><input type="text" id="bLote" maxlength="60"></label>
+            <label class="field"><span class="lbl">Lote</span><input type="text" id="bLote" maxlength="60" autocomplete="off"></label>
             <label class="field"><span class="lbl">Validade</span><input type="text" id="bVal" inputmode="numeric" maxlength="7" placeholder="08/2029" autocomplete="off"></label>
             <button class="btn" id="bAdd">Adicionar</button>
           </div>
@@ -255,10 +260,11 @@
           </div>
           <div class="fields additem">
             <label class="field"><span class="lbl">Produto</span><select id="trProd"></select></label>
+            <label class="field"><span class="lbl">Lote</span><select id="trLote"><option value="">Vence primeiro</option></select></label>
             <label class="field"><span class="lbl">Quantidade</span><input type="number" id="trQty" min="1" value="1"></label>
             <button class="btn" id="trAdd">Adicionar</button>
           </div>
-          <div class="tablewrap"><table><thead><tr><th>Produto</th><th class="r">Qtd</th><th class="r">Custo no PY</th><th class="r">Custo em SP (c/ frete)</th><th class="r">Subtotal em SP</th><th></th></tr></thead><tbody id="trItems"></tbody></table></div>
+          <div class="tablewrap"><table><thead><tr><th>Produto</th><th>Lote</th><th class="r">Qtd</th><th class="r">Custo no PY</th><th class="r">Custo em SP (c/ frete)</th><th class="r">Subtotal em SP</th><th></th></tr></thead><tbody id="trItems"></tbody></table></div>
           <div class="row between actions"><div><span class="lbl">Valor final em São Paulo</span><div class="num big" id="trTotal">—</div><div class="hint num" id="trTotalSub"></div></div><button class="btn primary" id="trSave">Transferir para São Paulo</button></div>
         </div>
         <div class="card"><h2>Transferências registradas</h2><div class="tablewrap" id="trfList"></div></div>
