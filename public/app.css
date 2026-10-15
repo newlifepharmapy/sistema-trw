@@ -215,9 +215,10 @@ tr.cancel td{color:var(--muted);text-decoration:line-through}
 @media print{
   /* no page margin: the browser then has no room to print its own date, title and address */
   /* the Epson's own "Papel contínuo 8,5 x 6 pol"; the height can be changed in Impressão da nota (default 6 in = 15,24 cm). Letter size
-     is the one of the first real print, which the user confirmed was right; the 78 columns (7.8 in) are centred */
+     is the one of the first real print, which the user confirmed was right; the 70 columns (7 in) are centred, inside the printable area
+     the real print showed (about 0.5 to 7.95 in across, and below the first 0.2 in) */
   @page{size:8.5in 6in;margin:0}
-  #printArea{padding:0 0 0 0.35in}
+  #printArea{padding:0.2in 0 0 0.75in}
   body{background:#fff !important}
   body>*:not(#printArea){display:none !important}
   #printArea{display:block !important}

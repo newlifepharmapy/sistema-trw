@@ -744,7 +744,8 @@ function renderFx() {
 }
 
 /* ---------- nota (dot-matrix, 80 columns) ---------- */
-const NW = 78;
+// 70 columns at 10 cpi = 7 in: the widest that the Epson prints on its 8,5 in continuous paper without cutting either side
+const NW = 70;
 const NOTA_F = [['empresa', 'Nome da empresa'], ['documento', 'RUC / CNPJ'], ['endereco', 'Endereço'], ['telefone', 'Telefone'], ['rodape', 'Mensagem no rodapé']];
 // plain ASCII prints the same on any dot-matrix code page
 const ascii = t => String(t ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\x20-\x7e]/g, '');
@@ -763,28 +764,28 @@ function notaText(s) {
   if (cfg.telefone) L.push(center('Tel.: ' + cfg.telefone));
   L.push(dbl);
   const buy = s.kind === 'compra', orc = s.kind === 'orcamento';
-  L.push(padR((buy ? 'NOTA DE ENTRADA No ' : orc ? 'ORCAMENTO No ' : 'NOTA DE VENDA No ') + String(s.id).padStart(6, '0'), 40) + padL(fDate(s.data) + ' ' + fTime(s.ts), NW - 40));
-  L.push(padR((buy ? 'Destino: ' : 'Loja: ') + LOJAS[s.loja].nome, 40) + padL((buy ? 'Registrado por: ' : 'Vendedor: ') + s.vendedorNome, NW - 40));
+  L.push(padR((buy ? 'NOTA DE ENTRADA No ' : orc ? 'ORCAMENTO No ' : 'NOTA DE VENDA No ') + String(s.id).padStart(6, '0'), 34) + padL(fDate(s.data) + ' ' + fTime(s.ts), NW - 34));
+  L.push(padR((buy ? 'Destino: ' : 'Loja: ') + LOJAS[s.loja].nome, 34) + padL((buy ? 'Registrado por: ' : 'Vendedor: ') + s.vendedorNome, NW - 34));
   if (s.cliente) L.push(padR((buy ? 'Fornecedor: ' : 'Cliente: ') + s.cliente, NW));
   if (orc && s.validadeOrc) L.push(padR('Valido ate: ' + fDate(s.validadeOrc), NW));
   if (s.cancelada) L.push(center(orc ? '*** ORCAMENTO CANCELADO ***' : '*** VENDA CANCELADA ***'));
   L.push(sep);
-  // Qtd(6) Descricao(32) Lote(10) Venc(8) Unit(10) Total(12)
-  L.push(padL('Qtd', 6) + ' ' + padR('Descricao', 31) + ' ' + padR('Lote', 9) + ' ' + padR('Venc.', 7) + ' ' + padL('Unit.', 9) + ' ' + padL('Total', 10));
+  // Qtd(5) Descricao(25) Lote(9) Venc(7) Unit(9) Total(10), one space between columns
+  L.push(padL('Qtd', 5) + ' ' + padR('Descricao', 25) + ' ' + padR('Lote', 9) + ' ' + padR('Venc.', 7) + ' ' + padL('Unit.', 9) + ' ' + padL('Total', 10));
   L.push(sep);
   (s.itens || []).forEach(i => {
     const venc = fVal(i.validade);
-    const desc = wrap(i.nome, 31);
-    L.push(padL(nNum(i.qtd, i.qtd % 1 ? 2 : 0), 6) + ' ' + padR(desc[0] || '', 31) + ' ' + padR(i.lote || '', 9) + ' ' + padR(venc, 7) + ' ' + padL(nNum(i.preco), 9) + ' ' + padL(nNum(i.qtd * i.preco), 10));
-    desc.slice(1).forEach(x => L.push(' '.repeat(7) + x));
+    const desc = wrap(i.nome, 25);
+    L.push(padL(nNum(i.qtd, i.qtd % 1 ? 2 : 0), 5) + ' ' + padR(desc[0] || '', 25) + ' ' + padR(i.lote || '', 9) + ' ' + padR(venc, 7) + ' ' + padL(nNum(i.preco), 9) + ' ' + padL(nNum(i.qtd * i.preco), 10));
+    desc.slice(1).forEach(x => L.push(' '.repeat(6) + x));
   });
   L.push(sep);
   const items = (s.itens || []).reduce((a, i) => a + i.qtd, 0);
-  if (s.frete) { L.push(padL('Subtotal ' + nMoney(s.subtotal, s.moeda), NW)); L.push(padR(s.frete.freteiro ? 'Freteiro: ' + s.frete.freteiro : '', 40) + padL(`Frete ${nNum(s.frete.pct, 2).replace(/,00$/, '')}% ` + nMoney(s.frete.valor, s.moeda), NW - 40)); }
+  if (s.frete) { L.push(padL('Subtotal ' + nMoney(s.subtotal, s.moeda), NW)); L.push(padR(s.frete.freteiro ? 'Freteiro: ' + s.frete.freteiro : '', 34) + padL(`Frete ${nNum(s.frete.pct, 2).replace(/,00$/, '')}% ` + nMoney(s.frete.valor, s.moeda), NW - 34)); }
   // every note shows the same three lines, whatever the store or the currency of the sale
   const rate = +s.cotacao ? nNum(s.cotacao, 4).replace(/0{1,2}$/, '') : '—', vIn = c => saleIn(s, c) == null ? '—' : nMoney(saleIn(s, c), c);
-  L.push(padR(`Itens: ${nNum(items, items % 1 ? 2 : 0)}`, 40) + padL('Valor total em US$: ' + vIn('USD'), NW - 40));
-  L.push(padR(s.pagamento ? 'Pagamento: ' + s.pagamento : '', 40) + padL('Valor total em R$: ' + vIn('BRL'), NW - 40));
+  L.push(padR(`Itens: ${nNum(items, items % 1 ? 2 : 0)}`, 34) + padL('Valor total em US$: ' + vIn('USD'), NW - 34));
+  L.push(padR(s.pagamento ? 'Pagamento: ' + s.pagamento : '', 34) + padL('Valor total em R$: ' + vIn('BRL'), NW - 34));
   L.push(padL('Cambio do dia: R$ ' + rate, NW));
   L.push(dbl);
   if (orc && s.obs) wrap('Obs.: ' + s.obs, NW).forEach(x => L.push(x));
