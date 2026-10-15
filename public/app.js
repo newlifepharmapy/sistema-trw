@@ -795,18 +795,23 @@ function notaText(s) {
 function printNota(s) {
   if (!s) return;
   const pre = document.createElement('pre'); pre.textContent = notaText(s);
-  $('#printArea').replaceChildren(pre);
+  // the page is exactly one sheet of the continuous form, so the next note starts at the next perforation
+  const st = document.createElement('style'), h = +S.settings?.nota?.papel?.altura || 27.94;
+  st.textContent = `@media print{@page{size:9.5in ${h}cm;margin:0}}`;
+  $('#printArea').replaceChildren(st, pre);
   setTimeout(() => window.print(), 50);
 }
 document.addEventListener('click', e => { const b = e.target.closest('[data-print]'); if (b) printNota(S.sales.find(x => x.id === +b.dataset.print)); });
 function renderNota() {
   if ($('#notaForm').contains(document.activeElement)) return;
   const n = S.settings?.nota || {};
+  if (document.activeElement !== $('#notaAlt')) $('#notaAlt').value = n.papel?.altura || '';
   $('#notaForm').innerHTML = ['PY', 'SP'].map(l => `<div class="nota-loja"><h3><span class="pill ${l.toLowerCase()}">${l}</span> ${LOJAS[l].nome}</h3>${NOTA_F.map(([k, t]) => `<label class="field"><span class="lbl">${t}</span>${k === 'rodape' ? `<textarea data-nl="${l}" data-nk="${k}">${esc(n[l]?.[k] || '')}</textarea>` : `<input type="text" data-nl="${l}" data-nk="${k}" value="${esc(n[l]?.[k] || '')}">`}</label>`).join('')}</div>`).join('');
 }
 $('#notaSave').onclick = async () => {
   const body = { PY: {}, SP: {} };
   $$('#notaForm [data-nl]').forEach(i => { body[i.dataset.nl][i.dataset.nk] = i.value; });
+  body.papel = { altura: +String($('#notaAlt').value).replace(',', '.') || 27.94 };
   if (await act(() => api('/nota/config', 'POST', body), 'Dados da nota salvos.')) { document.activeElement?.blur(); renderNota(); }
 };
 $('#notaTest').onclick = () => printNota({ id: 123, loja: 'PY', data: today(), ts: Date.now(), moeda: 'USD', total: 57.5, cotacao: S.rate || 5.4, pagamento: 'EFETIVO', cliente: 'Cliente de teste', vendedorNome: S.me.nome,
