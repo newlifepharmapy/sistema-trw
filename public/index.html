@@ -344,8 +344,8 @@
           <p class="hint">Estes dados saem impressos no topo e no fim de cada nota de venda. Cada loja tem os seus.</p>
           <div class="grid2" id="notaForm"></div>
           <div class="fields" style="margin-top:12px">
-            <label class="field"><span class="lbl">Altura da folha do papel contínuo (cm)</span><input type="number" id="notaAlt" min="5" max="60" step="0.01" placeholder="15"></label>
-            <div class="field hint end">Meça de um picote ao próximo. Use a mesma medida no papel CONTINUO 2 VIAS do driver da Epson.</div>
+            <label class="field"><span class="lbl">Altura da folha do papel contínuo (cm)</span><input type="number" id="notaAlt" min="5" max="60" step="0.01" placeholder="15,24"></label>
+            <div class="field hint end">Meça de um picote ao próximo. O padrão é 15,24 cm (6 pol.), o papel <b>Papel contínuo 8,5 x 6 pol</b> da Epson.</div>
           </div>
           <div class="row actions"><button class="btn primary" id="notaSave">Salvar</button><button class="btn" id="notaTest">Imprimir nota de teste</button></div>
         </div>
@@ -354,8 +354,8 @@
           <ol class="steps">
             <li>Papel contínuo de <b>2 vias</b>, 80 colunas, com folha de <b>11 pol. (28 cm) de altura</b>. A impressora bate nas duas vias de uma vez: imprima <b>1 cópia</b>, a 2ª via sai sozinha no carbono. Pedir 2 cópias gasta duas folhas.</li>
             <li>Na impressora, ponha a <b>alavanca de espessura do papel na posição 1</b> (para 2 vias). Se a 2ª via sair fraca, passe para 2. Na posição 0 a cópia sai apagada.</li>
-            <li>No Windows, em <b>Impressoras › Epson FX-890II › Preferências de impressão</b>, abra a aba <b>Papel Def. Utiliz.</b> e crie o papel <b>Continuo 2 vias</b> com largura <b>24,13 cm</b> e a altura da sua folha (de picote a picote), a mesma do campo acima. Depois, na aba <b>Papel/Qualidade</b>, escolha esse papel e a fonte <b>Tractor</b>. O driver não aceita Carta nem A4 com o trator.</li>
-            <li>Na janela de impressão do navegador, em <b>Mais configurações</b>: <b>Tamanho do papel: Continuo 2 vias</b>, <b>Cópias: 1</b>, <b>Margens: Nenhuma</b>, <b>Escala: Padrão (100%)</b> e <b>Cabeçalhos e rodapés</b> desmarcado. O Chrome e o Edge lembram essas opções.</li>
+            <li>No Windows, em <b>Impressoras › Epson FX-890II › Preferências de impressão › Papel/Qualidade</b>, escolha o papel <b>Papel contínuo 8,5 x 6 pol</b> e a fonte <b>Tractor</b>. Não use Carta nem A4: são mais compridos que a folha e a nota passa para a folha seguinte.</li>
+            <li>Na janela de impressão do navegador, em <b>Mais configurações</b>: <b>Tamanho do papel: Papel contínuo 8,5 x 6 pol</b>, <b>Cópias: 1</b>, <b>Margens: Nenhuma</b>, <b>Escala: Padrão (100%)</b> e <b>Cabeçalhos e rodapés</b> desmarcado. O Chrome e o Edge lembram essas opções.</li>
             <li>Antes da primeira impressão, acerte o início da folha: rasgue no picote, aperte <b>Load/Eject</b> para recolher o papel e aperte de novo para puxar. A cabeça deve ficar logo abaixo do picote. Depois disso não gire o papel com a mão, para não desalinhar as notas seguintes.</li>
           </ol>
         </div>
