@@ -552,8 +552,8 @@ app.post('/api/purchases', auth, need('compras'), h(async (req, res) => {
 
 // ---------- orçamentos ----------
 // prices are what the seller typed; nothing leaves the stock until the quote becomes a sale
-app.post('/api/quotes', auth, h(async (req, res) => {
-  const b = req.body, u = req.user;
+// a quote's store, currency, items and validity, checked the same way when it is created and when it is edited
+async function quoteBody(b, u) {
   const loja = LOJAS.includes(b.loja) ? b.loja : bad('Loja inválida.');
   if (!canStore(u, loja)) throw new HttpError(403, 'Você não tem acesso a esta loja.');
   const moeda = MOEDAS.includes(b.moeda) ? b.moeda : bad('Moeda inválida.');
@@ -575,8 +575,24 @@ app.post('/api/quotes', auth, h(async (req, res) => {
   const dias = Math.min(365, Math.max(1, Math.round(num(b.validadeDias, 7))));
   const validade = new Date(Date.parse(todayStr() + 'T12:00:00Z') + dias * 864e5).toISOString().slice(0, 10);
   const total = r2(itens.reduce((a, i) => a + i.qtd * i.preco, 0));
+  return { loja, moeda, itens, total, rate, validade, cliente: str(b.cliente, 120), obs: str(b.obs, 500) };
+}
+app.post('/api/quotes', auth, h(async (req, res) => {
+  const u = req.user, q = await quoteBody(req.body, u);
   const { rows } = await pool.query(`insert into quotes (loja,data,ts,moeda,cliente,obs,validade,itens,total,cotacao,vendedor_id,vendedor_nome) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) returning *`,
-    [loja, todayStr(), Date.now(), moeda, str(b.cliente, 120), str(b.obs, 500), validade, JSON.stringify(itens), total, rate, u.id, u.nome]);
+    [q.loja, todayStr(), Date.now(), q.moeda, q.cliente, q.obs, q.validade, JSON.stringify(q.itens), q.total, q.rate, u.id, u.nome]);
+  bump(); res.json({ ok: true, quote: mapQuote(rows[0]) });
+}));
+// only an open quote can be edited; it keeps its number and date, and takes the current rate
+app.put('/api/quotes/:id', auth, h(async (req, res) => {
+  const { rows: cur } = await pool.query('select * from quotes where id=$1', [+req.params.id]);
+  const old = cur[0]; if (!old) bad('Orçamento não encontrado.');
+  if (!canStore(req.user, old.loja)) throw new HttpError(403, 'Você não tem acesso a esta loja.');
+  if (old.status !== 'aberto') bad(old.status === 'vendido' ? 'Este orçamento já virou venda e não pode ser editado.' : 'Orçamento cancelado não pode ser editado.');
+  const q = await quoteBody(req.body, req.user);
+  const { rows } = await pool.query(`update quotes set loja=$1, moeda=$2, cliente=$3, obs=$4, validade=$5, itens=$6, total=$7, cotacao=$8 where id=$9 and status='aberto' returning *`,
+    [q.loja, q.moeda, q.cliente, q.obs, q.validade, JSON.stringify(q.itens), q.total, q.rate, old.id]);
+  if (!rows[0]) bad('Este orçamento mudou de situação. Atualize a página.');
   bump(); res.json({ ok: true, quote: mapQuote(rows[0]) });
 }));
 app.post('/api/quotes/:id/cancel', auth, h(async (req, res) => {

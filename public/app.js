@@ -976,11 +976,25 @@ $('#oFilter').onchange = () => renderOrc();
 $('#oSave').onclick = async () => {
   if (!S.orcItems.length) return toast('Adicione pelo menos um produto.', true);
   $('#oSave').disabled = true;
-  const r = await act(() => api('/quotes', 'POST', { loja: $('#oLoja').value, moeda: $('#oCur').value, cliente: $('#oCli').value, obs: $('#oObs').value, validadeDias: +$('#oDias').value || 7, itens: S.orcItems.map(i => ({ pid: i.pid, nome: i.nome, qtd: i.qtd, preco: i.preco })) }));
+  const r = await act(() => api(S.orcEdit ? '/quotes/' + S.orcEdit : '/quotes', S.orcEdit ? 'PUT' : 'POST', { loja: $('#oLoja').value, moeda: $('#oCur').value, cliente: $('#oCli').value, obs: $('#oObs').value, validadeDias: +$('#oDias').value || 7, itens: S.orcItems.map(i => ({ pid: i.pid, nome: i.nome, qtd: i.qtd, preco: i.preco })) }));
   $('#oSave').disabled = false;
-  if (r) { S.orcItems = []; $('#oCli').value = ''; $('#oObs').value = ''; renderOrc(); askDoc(quoteDoc(r.quote)); }
+  if (r) { oEditEnd(); askDoc(quoteDoc(r.quote)); }
 };
 // "Vender" puts the quote in the cart of its store; the sale then closes the quote
+// editing loads an open quote back into the form above; saving keeps its number
+function oEditStart(q) {
+  if (!q || q.status !== 'aberto') return;
+  S.orcEdit = q.id;
+  oSetLoja(); $('#oLoja').value = q.loja; $('#oCur').value = q.moeda;
+  $('#oCli').value = q.cliente || ''; $('#oObs').value = q.obs || '';
+  $('#oDias').value = Math.max(1, q.validade ? daysTo(q.validade) : 7);
+  S.orcItems = (q.itens || []).map(i => ({ pid: i.pid, nome: i.nome, codigo: i.codigo || '', qtd: i.qtd, preco: i.preco }));
+  renderOrc(); $('#oTitle').scrollIntoView({ behavior: 'smooth' });
+}
+function oEditEnd() {
+  S.orcEdit = null; S.orcItems = []; $('#oCli').value = ''; $('#oObs').value = ''; $('#oDias').value = 7; renderOrc();
+}
+$('#oEditCancel').onclick = oEditEnd;
 function quoteToCart(q) {
   const c = S.carts[q.loja];
   if (c.items.length && !confirm('O carrinho desta loja já tem produtos. Trocar pelos itens do orçamento?')) return;
@@ -995,11 +1009,16 @@ document.addEventListener('click', async e => {
   if (pr) printNota(quoteDoc(find(pr)));
   if (wa) openWa(quoteDoc(find(wa)));
   if (sell) quoteToCart(find(sell));
+  const edq = e.target.closest('[data-oedit]'); if (edq) oEditStart(S.quotes.find(q => q.id === +edq.dataset.oedit));
   if (ca) { if (!armed(ca, 'Confirmar', 'Cancelar')) return; ca.disabled = true; await act(() => api(`/quotes/${ca.dataset.ocancel}/cancel`, 'POST', {}), 'Orçamento cancelado.'); }
   if (de) { if (!armed(de, 'Apagar de vez?', 'Excluir')) return; de.disabled = true; await act(() => api(`/quotes/${de.dataset.odel}`, 'DELETE', {}), 'Orçamento excluído do sistema.'); }
 });
 function renderOrc() {
   oSetLoja();
+  // the quote being edited may have been sold or cancelled meanwhile on another computer
+  if (S.orcEdit && S.quotes.find(q => q.id === S.orcEdit)?.status !== 'aberto') { S.orcEdit = null; toast('O orçamento em edição não está mais em aberto.', true); }
+  $('#oTitle').textContent = S.orcEdit ? `Editar orçamento nº ${String(S.orcEdit).padStart(6, '0')}` : 'Novo orçamento';
+  $('#oEditCancel').hidden = !S.orcEdit; $('#oSave').textContent = S.orcEdit ? 'Salvar alterações' : 'Salvar orçamento';
   const l = $('#oLoja').value, cur = $('#oCur').value, o = cur === 'USD' ? 'BRL' : 'USD', sel = $('#oProd');
   if (document.activeElement !== sel) {
     const v = sel.value;
@@ -1016,7 +1035,7 @@ function renderOrc() {
   const stPill = q => q.status === 'vendido' ? '<span class="pill ok">virou venda</span>' : q.status === 'cancelado' ? '<span class="pill bad">cancelado</span>' : qExpired(q) ? '<span class="pill warn">vencido</span>' : '<span class="pill">em aberto</span>';
   $('#orcList').innerHTML = L.length ? `<table><thead><tr><th>Nº</th><th>Data</th><th>Loja</th><th>Cliente</th><th>Itens</th><th>Válido até</th><th>Situação</th><th class="r">Total</th><th></th></tr></thead><tbody>${L.map(q => { const oc = q.moeda === 'USD' ? 'BRL' : 'USD';
     return `<tr class="${q.status === 'cancelado' ? 'cancel' : ''}"><td class="num">${String(q.id).padStart(6, '0')}</td><td class="num">${fDate(q.data)}</td><td><span class="pill ${q.loja.toLowerCase()}">${q.loja}</span></td><td>${esc(q.cliente || '—')}</td><td>${(q.itens || []).map(i => `${i.qtd}× ${esc(i.nome)}`).join(', ')}</td><td class="num">${q.validade ? fDate(q.validade) : '—'}</td><td>${stPill(q)}</td><td class="r num"><b>${fm(q.total, q.moeda)}</b><div class="hint">${fm(saleIn(q, oc), oc)}</div></td>
-      <td class="r" style="white-space:nowrap"><button class="btn small" data-oprint="${q.id}">Imprimir</button> <button class="btn small" data-owa="${q.id}">WhatsApp</button>${q.status === 'aberto' ? ` <button class="btn small primary" data-osell="${q.id}">Vender</button> <button class="btn small danger" data-ocancel="${q.id}">Cancelar</button>` : ''}${q.status === 'cancelado' && can('excluir') ? ` <button class="btn small danger" data-odel="${q.id}">Excluir</button>` : ''}</td></tr>`; }).join('')}</tbody></table>`
+      <td class="r" style="white-space:nowrap"><button class="btn small" data-oprint="${q.id}">Imprimir</button> <button class="btn small" data-owa="${q.id}">WhatsApp</button>${q.status === 'aberto' ? ` <button class="btn small" data-oedit="${q.id}">Editar</button> <button class="btn small primary" data-osell="${q.id}">Vender</button> <button class="btn small danger" data-ocancel="${q.id}">Cancelar</button>` : ''}${q.status === 'cancelado' && can('excluir') ? ` <button class="btn small danger" data-odel="${q.id}">Excluir</button>` : ''}</td></tr>`; }).join('')}</tbody></table>`
     : `<div class="empty">${S.quotes.length ? 'Nenhum orçamento neste filtro.' : 'Nenhum orçamento ainda.'}</div>`;
 }
 
