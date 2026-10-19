@@ -529,7 +529,7 @@ function renderImp() {
     const c = impCalc(i), atras = !i.recebida && !i.cancelada && i.eta && i.eta < today();
     return `<tr class="${i.cancelada ? 'cancel' : ''}"><td><b>${esc(i.ref || '—')}</b></td><td>${esc(i.fornecedor || '—')}${i.origem ? `<div class="hint">${esc(i.origem)}</div>` : ''}</td><td class="num">${fDate(i.data)}</td>
     <td class="num">${i.recebida ? fDate(new Date(+i.recebidaEm).toLocaleDateString('sv-SE')) : (i.eta ? fDate(i.eta) : '—')}${atras ? ' <span class="pill bad">atrasada</span>' : ''}</td>
-    <td>${stPill(i)}</td><td style="max-width:280px">${(i.itens || []).map(x => `${x.qtd}× ${esc(x.nome)}`).join(', ')}</td>
+    <td>${stPill(i)}</td><td>${itemLines((i.itens || []).map(x => ({ ...x, nome: x.nome || S.products.find(p => p.id === x.pid)?.nome || '', preco: x.fob })), 'USD')}</td>
     <td class="r num">${fm(c.fob, 'USD')}</td><td class="r num"><b>${fm(c.total, 'USD')}</b>${S.rate ? `<div class="hint">${fm(c.total * S.rate, 'BRL')}</div>` : ''}</td>
     <td class="r" style="white-space:nowrap">${i.cancelada ? (can('excluir') ? `<button class="btn small danger" data-deli="${i.id}">Excluir</button>` : '') : `${i.recebida ? '' : `<button class="btn small" data-editi="${i.id}">Editar</button> <button class="btn small" data-recv="${i.id}">Dar entrada no estoque</button>`}${can('cancelar') ? ` <button class="btn small danger" data-canceli="${i.id}">Cancelar</button>` : ''}`}</td></tr>`;
   }).join('')}</tbody></table>` : '<div class="empty">Nenhuma importação registrada. Use o formulário acima para abrir o primeiro processo.</div>';
