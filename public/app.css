@@ -262,3 +262,7 @@ td.lotc div{min-height:24px;display:flex;align-items:center;gap:4px}
 .plots input.q{max-width:110px}
 td.buyitems{min-width:300px}
 td.buyitems > div + div{margin-top:6px}
+.itlist{min-width:260px}
+.itlist > div{display:flex;gap:6px;align-items:baseline;padding:2px 0}
+.itlist > div + div{border-top:1px dashed var(--line-2)}
+.itlist .itv{margin-left:auto;padding-left:12px;white-space:nowrap}
