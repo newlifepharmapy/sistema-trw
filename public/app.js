@@ -971,10 +971,24 @@ $('#oAdd').onclick = () => {
   if (ex) { ex.qtd += q; ex.preco = pr; } else S.orcItems.push({ pid: p.id, nome: p.nome, codigo: p.codigo || '', qtd: q, preco: pr });
   $('#oQty').value = 1; $('#oPrice').value = ''; $('#oProd').value = ''; renderOrc();
 };
+function oTotals() {
+  const cur = $('#oCur').value, o = cur === 'USD' ? 'BRL' : 'USD', t = S.orcItems.reduce((a, i) => a + i.qtd * i.preco, 0);
+  $('#oTotal').textContent = S.orcItems.length ? fm(t, cur) : '—';
+  $('#oTotalSub').textContent = S.orcItems.length && S.rate ? '≈ ' + fm(conv(t, cur, o), o) : '';
+}
+// quantity and price of each item are typed straight into the list; only the subtotal and total redraw, so the field keeps focus
+$('#oItems').addEventListener('input', e => {
+  const it = S.orcItems[+e.target.dataset.ok]; if (!it) return;
+  const v = Math.max(0, +e.target.value || 0); if (e.target.dataset.of === 'q') it.qtd = v; else it.preco = v;
+  const sub = e.target.closest('tr').querySelector('.sub'); if (sub) sub.textContent = fm(it.qtd * it.preco, $('#oCur').value);
+  oTotals();
+});
 $('#oItems').onclick = e => { const b = e.target.closest('[data-oi]'); if (b) { S.orcItems.splice(+b.dataset.oi, 1); renderOrc(); } };
 $('#oFilter').onchange = () => renderOrc();
 $('#oSave').onclick = async () => {
-  if (!S.orcItems.length) return toast('Adicione pelo menos um produto.', true);
+  S.orcItems = S.orcItems.filter(i => i.qtd > 0);
+  if (!S.orcItems.length) { renderOrc(); return toast('Adicione pelo menos um produto.', true); }
+  if (S.orcItems.some(i => !(i.preco > 0))) return toast('Há produto sem preço. Informe o preço antes de salvar.', true);
   $('#oSave').disabled = true;
   const r = await act(() => api(S.orcEdit ? '/quotes/' + S.orcEdit : '/quotes', S.orcEdit ? 'PUT' : 'POST', { loja: $('#oLoja').value, moeda: $('#oCur').value, cliente: $('#oCli').value, obs: $('#oObs').value, validadeDias: +$('#oDias').value || 7, itens: S.orcItems.map(i => ({ pid: i.pid, nome: i.nome, qtd: i.qtd, preco: i.preco })) }));
   $('#oSave').disabled = false;
@@ -1025,12 +1039,11 @@ function renderOrc() {
     sel.innerHTML = '<option value="">Selecione…</option>' + S.products.map(p => `<option value="${p.id}">${esc((p.codigo ? p.codigo + ' · ' : '') + p.nome)} — ${stockOf(p, l)} un. · ${fm(priceFor(p, cur), cur)}</option>`).join('');
     sel.value = v;
   }
-  $('#oItems').innerHTML = S.orcItems.map((i, k) => { const p = S.products.find(x => x.id === i.pid), st = p ? stockOf(p, l) : 0;
-    return `<tr><td>${i.codigo ? `<span class="num hint">${esc(i.codigo)}</span> ` : ''}${esc(i.nome)}</td><td class="r"><span class="pill num ${st < i.qtd ? 'warn' : ''}">${st}</span></td><td class="r num">${i.qtd}</td><td class="r num">${fm(i.preco, cur)}</td><td class="r num">${fm(i.qtd * i.preco, cur)}</td><td><button class="x" data-oi="${k}" aria-label="Remover">×</button></td></tr>`; }).join('')
+  // a refresh from another computer must not wipe what is being typed in the item list
+  if (!$('#oItems').contains(document.activeElement)) $('#oItems').innerHTML = S.orcItems.map((i, k) => { const p = S.products.find(x => x.id === i.pid), st = p ? stockOf(p, l) : 0;
+    return `<tr><td>${i.codigo ? `<span class="num hint">${esc(i.codigo)}</span> ` : ''}${esc(i.nome)}</td><td class="r"><span class="pill num ${st < i.qtd ? 'warn' : ''}">${st}</span></td><td class="r"><input class="q" type="number" min="0" step="1" value="${i.qtd}" data-ok="${k}" data-of="q" aria-label="Quantidade"></td><td class="r"><input type="number" min="0" step="0.01" value="${i.preco}" data-ok="${k}" data-of="p" aria-label="Preço unitário"></td><td class="r num sub">${fm(i.qtd * i.preco, cur)}</td><td><button class="x" data-oi="${k}" aria-label="Remover">×</button></td></tr>`; }).join('')
     || '<tr><td colspan="6" class="empty">Adicione os produtos do orçamento.</td></tr>';
-  const t = S.orcItems.reduce((a, i) => a + i.qtd * i.preco, 0);
-  $('#oTotal').textContent = S.orcItems.length ? fm(t, cur) : '—';
-  $('#oTotalSub').textContent = S.orcItems.length && S.rate ? '≈ ' + fm(conv(t, cur, o), o) : '';
+  oTotals();
   const f = $('#oFilter').value, L = S.quotes.filter(q => f === 'all' || q.status === f).slice(0, 300);
   const stPill = q => q.status === 'vendido' ? '<span class="pill ok">virou venda</span>' : q.status === 'cancelado' ? '<span class="pill bad">cancelado</span>' : qExpired(q) ? '<span class="pill warn">vencido</span>' : '<span class="pill">em aberto</span>';
   $('#orcList').innerHTML = L.length ? `<table><thead><tr><th>Nº</th><th>Data</th><th>Loja</th><th>Cliente</th><th>Itens</th><th>Válido até</th><th>Situação</th><th class="r">Total</th><th></th></tr></thead><tbody>${L.map(q => { const oc = q.moeda === 'USD' ? 'BRL' : 'USD';
