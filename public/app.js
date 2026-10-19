@@ -461,15 +461,34 @@ $('#bItems').onclick = e => { const b = e.target.closest('[data-bi]'); if (b) { 
 $('#bSave').onclick = async () => {
   if (!S.buyItems.length) return toast('Adicione pelo menos um produto.', true);
   $('#bSave').disabled = true;
-  const ok = await act(() => api('/purchases', 'POST', { data: $('#bDate').value, fornecedor: $('#bSup').value, loja: $('#bLoja').value, moeda: bCurV(), pagamento: bPayV(), itens: S.buyItems, fretePct: fretePct(), freteiro: $('#bFreteiro').value }), 'Entrada registrada e estoque atualizado.');
+  const ok = await act(() => api(S.buyEdit ? '/purchases/' + S.buyEdit : '/purchases', S.buyEdit ? 'PUT' : 'POST', { data: $('#bDate').value, fornecedor: $('#bSup').value, loja: $('#bLoja').value, moeda: bCurV(), pagamento: bPayV(), itens: S.buyItems, fretePct: fretePct(), freteiro: $('#bFreteiro').value }), S.buyEdit ? 'Entrada alterada e estoque corrigido.' : 'Entrada registrada e estoque atualizado.');
   $('#bSave').disabled = false;
-  if (ok) { S.buyItems = []; $('#bSup').value = ''; $('#bFreteiro').value = ''; $('#bFrete').value = ''; renderBuyItems(); if (ok.purchase) askDoc(purchaseDoc(ok.purchase)); }
+  if (ok) { bEditEnd(); if (ok.purchase) askDoc(purchaseDoc(ok.purchase)); }
 };
+// editing loads an entry back into the form; saving takes its old items out of the stock and puts the new ones in
+function bEditStart(p) {
+  if (!p || p.cancelada) return;
+  S.buyEdit = p.id;
+  $('#bSup').value = p.fornecedor || ''; $('#bLoja').value = p.loja; $('#bDate').value = p.data;
+  $('#bCur').value = p.moeda === 'USD' ? 'USD|' + (p.pagamento || 'EFECTIVO') : 'BRL';
+  $('#bFreteiro').value = p.freteiro || ''; $('#bFrete').value = +p.fretePct || '';
+  S.buyItems = (p.itens || []).map(i => ({ pid: i.pid, nome: i.nome, qtd: i.qtd, custo: i.custo, lote: i.lote || '', validade: i.validade || '', fornecedor: i.fornecedor && i.fornecedor !== p.fornecedor ? i.fornecedor : '' }));
+  renderBuy(); $('#bTitle').scrollIntoView({ behavior: 'smooth' });
+}
+function bEditEnd() {
+  S.buyEdit = null; S.buyItems = []; $('#bSup').value = ''; $('#bFreteiro').value = ''; $('#bFrete').value = ''; $('#bDate').value = today(); renderBuy();
+}
+$('#bEditCancel').onclick = bEditEnd;
+document.addEventListener('click', e => { const b = e.target.closest('[data-editp]'); if (b) bEditStart(S.purchases.find(p => p.id === +b.dataset.editp)); });
 function renderBuy() {
+  // the entry being edited may have been cancelled meanwhile on another computer
+  if (S.buyEdit && !S.purchases.find(p => p.id === S.buyEdit && !p.cancelada)) { S.buyEdit = null; toast('A entrada em edição foi cancelada.', true); }
+  $('#bTitle').textContent = S.buyEdit ? `Editar entrada nº ${S.buyEdit}` : 'Nova entrada';
+  $('#bEditCancel').hidden = !S.buyEdit; $('#bSave').textContent = S.buyEdit ? 'Salvar alterações' : 'Registrar entrada';
   const sel = $('#bProd'), v = sel.value; sel.innerHTML = productOptions(); sel.value = v;
   renderBuyItems();
   const L = S.purchases.slice(0, 200);
-  $('#buyList').innerHTML = L.length ? `<table><thead><tr><th>Data</th><th>Fornecedor</th><th>Destino</th><th>Itens</th><th>Frete</th><th>Registrado por</th><th class="r">Total</th><th></th></tr></thead><tbody>${L.map(p => { const o = p.moeda === 'USD' ? 'BRL' : 'USD'; return `<tr class="${p.cancelada ? 'cancel' : ''}"><td class="num">${fDate(p.data)}</td><td>${esc(p.fornecedor || '—')}</td><td><span class="pill ${p.loja.toLowerCase()}">${p.loja}</span></td><td class="buyitems">${(p.itens || []).map(i => `<div>${i.qtd}× ${esc(i.nome)}<div class="hint">${[i.lote ? 'lote ' + esc(i.lote) : '', i.validade ? 'val. ' + fVal(i.validade) : '', (i.fornecedor || p.fornecedor) ? esc(i.fornecedor || p.fornecedor) : '', fm(i.custo, p.moeda) + ' un.'].filter(Boolean).join(' · ')}</div></div>`).join('')}</td><td>${p.freteiro || +p.fretePct ? `${esc(p.freteiro || '—')}<div class="hint num">${+p.fretePct || 0}% · ${fm(+p.freteValor || 0, p.moeda)}</div>` : '—'}</td><td>${esc(p.criadoPor)}</td><td class="r num"><b>${fm(p.total, p.moeda)}</b><div class="hint">${p.pagamento ? esc(p.pagamento) + ' · ' : ''}${fm(conv(p.total, p.moeda, o), o)}</div></td><td class="r" style="white-space:nowrap"><button class="btn small" data-printp="${p.id}">Imprimir</button> <button class="btn small" data-wap="${p.id}">WhatsApp</button>${p.cancelada ? ' <span class="pill bad">cancelada</span>' + (can('excluir') ? ` <button class="btn small danger" data-delp2="${p.id}">Excluir</button>` : '') : can('cancelar') ? ` <button class="btn small danger" data-cancelp="${p.id}">Cancelar</button>` : ''}</td></tr>`; }).join('')}</tbody></table>` : '<div class="empty">Nenhuma entrada registrada.</div>';
+  $('#buyList').innerHTML = L.length ? `<table><thead><tr><th>Data</th><th>Fornecedor</th><th>Destino</th><th>Itens</th><th>Frete</th><th>Registrado por</th><th class="r">Total</th><th></th></tr></thead><tbody>${L.map(p => { const o = p.moeda === 'USD' ? 'BRL' : 'USD'; return `<tr class="${p.cancelada ? 'cancel' : ''}"><td class="num">${fDate(p.data)}</td><td>${esc(p.fornecedor || '—')}</td><td><span class="pill ${p.loja.toLowerCase()}">${p.loja}</span></td><td class="buyitems">${(p.itens || []).map(i => `<div>${i.qtd}× ${esc(i.nome)}<div class="hint">${[i.lote ? 'lote ' + esc(i.lote) : '', i.validade ? 'val. ' + fVal(i.validade) : '', (i.fornecedor || p.fornecedor) ? esc(i.fornecedor || p.fornecedor) : '', fm(i.custo, p.moeda) + ' un.'].filter(Boolean).join(' · ')}</div></div>`).join('')}</td><td>${p.freteiro || +p.fretePct ? `${esc(p.freteiro || '—')}<div class="hint num">${+p.fretePct || 0}% · ${fm(+p.freteValor || 0, p.moeda)}</div>` : '—'}</td><td>${esc(p.criadoPor)}</td><td class="r num"><b>${fm(p.total, p.moeda)}</b><div class="hint">${p.pagamento ? esc(p.pagamento) + ' · ' : ''}${fm(conv(p.total, p.moeda, o), o)}</div></td><td class="r" style="white-space:nowrap"><button class="btn small" data-printp="${p.id}">Imprimir</button> <button class="btn small" data-wap="${p.id}">WhatsApp</button>${!p.cancelada && can('compras') ? ` <button class="btn small" data-editp="${p.id}">Editar</button>` : ''}${p.cancelada ? ' <span class="pill bad">cancelada</span>' + (can('excluir') ? ` <button class="btn small danger" data-delp2="${p.id}">Excluir</button>` : '') : can('cancelar') ? ` <button class="btn small danger" data-cancelp="${p.id}">Cancelar</button>` : ''}</td></tr>`; }).join('')}</tbody></table>` : '<div class="empty">Nenhuma entrada registrada.</div>';
 }
 
 /* ---------- imports ---------- */

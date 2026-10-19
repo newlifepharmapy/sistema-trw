@@ -162,6 +162,9 @@ function client() {
   await adm(`/api/sales/${sf.data.sale.id}/cancel`, 'POST', {});
   fl = (await adm('/api/data')).data.products.find(x => x.id === lp2).lotes;
   assert(fl.find(x => x.lote === 'F1').fornecedor === 'Lab Alfa', 'lote vendido e devolvido mantém o fornecedor');
+  const ee = await adm(`/api/purchases/${ef.data.purchase.id}`, 'PUT', { loja: 'PY', moeda: 'USD', fornecedor: 'Distribuidora Geral', data: ef.data.purchase.data, itens: [{ pid: lp2, qtd: 2, custo: 1, lote: 'F1', validade: '2030-01-01', fornecedor: 'Lab Alfa' }, { pid: lp2, qtd: 4, custo: 1.5, lote: 'G2', validade: '2031-03-01' }] });
+  fl = (await adm('/api/data')).data.products.find(x => x.id === lp2);
+  assert(ee.status === 200 && ee.data.purchase.id === ef.data.purchase.id && +ee.data.purchase.total === 8 && fl.estoque.PY === 21 && !fl.lotes.some(x => x.lote === 'F2') && fl.lotes.find(x => x.lote === 'G2').qtd === 4 && fl.lotes.find(x => x.lote === 'F1').qtd === 2, 'entrada editada corrige estoque e lotes, mantém o número');
   await adm(`/api/purchases/${ef.data.purchase.id}/cancel`, 'POST', {});
   const lotsNow = async () => (await adm('/api/data')).data.products.find(x => x.id === lp2);
   let lx = await lotsNow();

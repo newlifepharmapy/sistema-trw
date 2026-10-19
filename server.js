@@ -440,11 +440,7 @@ app.post('/api/purchases/:id/cancel', auth, need('cancelar'), need('compras'), h
   await tx(async c => {
     const { rows } = await c.query('select * from purchases where id=$1 for update', [+req.params.id]);
     const p = rows[0]; if (!p) bad('Entrada não encontrada.'); if (p.cancelada) bad('Esta entrada já foi cancelada.');
-    const col = p.loja === 'PY' ? 'estoque_py' : 'estoque_sp';
-    for (const i of p.itens) if (i.pid) {
-      await takeLots(c, i.pid, p.loja, i.qtd, { lote: i.lote || '', validade: i.validade || '' });
-      await c.query(`update products set ${col} = ${col} - $1 where id=$2`, [i.qtd, i.pid]);
-    }
+    await purchaseOut(c, p);
     await c.query('update purchases set cancelada=true, cancelada_por=$1, cancelada_em=$2 where id=$3', [req.user.nome, Date.now(), p.id]);
   });
   bump(); res.json({ ok: true });
@@ -520,8 +516,8 @@ app.get('/api/export/vendas.csv', auth, need('exportar'), h(async (req, res) => 
 }));
 
 // ---------- compras e entradas ----------
-app.post('/api/purchases', auth, need('compras'), h(async (req, res) => {
-  const b = req.body;
+// checks an entry and puts its items into the stock: quantity, lot and supplier, and the product cost
+async function purchaseIn(c, b) {
   const loja = LOJAS.includes(b.loja) ? b.loja : bad('Loja inválida.');
   const moeda = MOEDAS.includes(b.moeda) ? b.moeda : bad('Moeda inválida.');
   const itensIn = Array.isArray(b.itens) ? b.itens.filter(i => num(i.qtd) > 0 && i.pid).slice(0, 300) : [];
@@ -529,26 +525,51 @@ app.post('/api/purchases', auth, need('compras'), h(async (req, res) => {
   const fretePct = loja === 'SP' ? Math.max(0, num(b.fretePct)) : 0;
   // dollar purchases say how they were paid
   const pagamento = moeda === 'USD' ? (['EFECTIVO', 'USDT'].includes(b.pagamento) ? b.pagamento : '') : '';
+  const rate = await currentRate(c);
+  if (moeda === 'BRL' && !rate) bad('Defina a cotação do dólar antes.');
+  const col = loja === 'PY' ? 'estoque_py' : 'estoque_sp';
+  const itens = [];
+  for (const i of itensIn) {
+    const qtd = num(i.qtd), custo = r2(Math.max(0, num(i.custo))), lote = str(i.lote, 60);
+    // each item can come from its own supplier; without one it is the supplier of the entry
+    const fornecedor = str(i.fornecedor, 120) || str(b.fornecedor);
+    const validade = i.validade ? (monthLast(i.validade) || bad('Validade inválida. Use mês e ano.')) : '';
+    const custoUsd = r2((moeda === 'USD' ? custo : custo / rate) * (1 + fretePct / 100));
+    const { rows } = await c.query(`update products set ${col} = ${col} + $1, custo = $2${loja === 'SP' ? ', custo_sp = $2' : ''} where id=$3 and ativo returning id, nome`, [qtd, custoUsd, +i.pid]);
+    if (!rows[0]) bad('Produto não encontrado.');
+    await addLot(c, rows[0].id, loja, lote, validade, qtd, fornecedor);
+    itens.push({ pid: rows[0].id, nome: rows[0].nome, qtd, custo, lote, validade, fornecedor });
+  }
+  const subtotal = r2(itens.reduce((a, i) => a + i.qtd * i.custo, 0)), freteValor = r2(subtotal * fretePct / 100);
+  return { data: isDate(b.data) ? b.data : todayStr(), fornecedor: str(b.fornecedor), loja, moeda, itens, subtotal, fretePct, freteValor, freteiro: loja === 'SP' ? str(b.freteiro) : '', total: r2(subtotal + freteValor), rate, pagamento };
+}
+// takes an entry's units back out of the lots they went into
+async function purchaseOut(c, p) {
+  const col = p.loja === 'PY' ? 'estoque_py' : 'estoque_sp';
+  for (const i of p.itens) if (i.pid) {
+    await takeLots(c, i.pid, p.loja, i.qtd, { lote: i.lote || '', validade: i.validade || '' });
+    await c.query(`update products set ${col} = ${col} - $1 where id=$2`, [i.qtd, i.pid]);
+  }
+}
+app.post('/api/purchases', auth, need('compras'), h(async (req, res) => {
   const row = await tx(async c => {
-    const rate = await currentRate(c);
-    if (moeda === 'BRL' && !rate) bad('Defina a cotação do dólar antes.');
-    const col = loja === 'PY' ? 'estoque_py' : 'estoque_sp';
-    const itens = [];
-    for (const i of itensIn) {
-      const qtd = num(i.qtd), custo = r2(Math.max(0, num(i.custo))), lote = str(i.lote, 60);
-      // each item can come from its own supplier; without one it is the supplier of the entry
-      const fornecedor = str(i.fornecedor, 120) || str(b.fornecedor);
-      const validade = i.validade ? (monthLast(i.validade) || bad('Validade inválida. Use mês e ano.')) : '';
-      const custoUsd = r2((moeda === 'USD' ? custo : custo / rate) * (1 + fretePct / 100));
-      const { rows } = await c.query(`update products set ${col} = ${col} + $1, custo = $2${loja === 'SP' ? ', custo_sp = $2' : ''} where id=$3 and ativo returning id, nome`, [qtd, custoUsd, +i.pid]);
-      if (!rows[0]) bad('Produto não encontrado.');
-      await addLot(c, rows[0].id, loja, lote, validade, qtd, fornecedor);
-      itens.push({ pid: rows[0].id, nome: rows[0].nome, qtd, custo, lote, validade, fornecedor });
-    }
-    const subtotal = r2(itens.reduce((a, i) => a + i.qtd * i.custo, 0)), freteValor = r2(subtotal * fretePct / 100);
+    const d = await purchaseIn(c, req.body);
     const r = await c.query(`insert into purchases (data,ts,fornecedor,loja,moeda,itens,subtotal,frete_pct,frete_valor,freteiro,total,cotacao,criado_por,pagamento)
       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) returning *`,
-      [isDate(b.data) ? b.data : todayStr(), Date.now(), str(b.fornecedor), loja, moeda, JSON.stringify(itens), subtotal, fretePct, freteValor, loja === 'SP' ? str(b.freteiro) : '', r2(subtotal + freteValor), rate, req.user.nome, pagamento]);
+      [d.data, Date.now(), d.fornecedor, d.loja, d.moeda, JSON.stringify(d.itens), d.subtotal, d.fretePct, d.freteValor, d.freteiro, d.total, d.rate, req.user.nome, d.pagamento]);
+    return r.rows[0];
+  });
+  bump(); res.json({ ok: true, purchase: mapPurchase(row) });
+}));
+// editing an entry undoes its old items in the stock and puts the new ones in, in one go; it keeps its number
+app.put('/api/purchases/:id', auth, need('compras'), h(async (req, res) => {
+  const row = await tx(async c => {
+    const { rows } = await c.query('select * from purchases where id=$1 for update', [+req.params.id]);
+    const p = rows[0]; if (!p) bad('Entrada não encontrada.'); if (p.cancelada) bad('Entrada cancelada não pode ser editada.');
+    await purchaseOut(c, p);
+    const d = await purchaseIn(c, req.body);
+    const r = await c.query(`update purchases set data=$1, fornecedor=$2, loja=$3, moeda=$4, itens=$5, subtotal=$6, frete_pct=$7, frete_valor=$8, freteiro=$9, total=$10, cotacao=$11, pagamento=$12 where id=$13 returning *`,
+      [d.data, d.fornecedor, d.loja, d.moeda, JSON.stringify(d.itens), d.subtotal, d.fretePct, d.freteValor, d.freteiro, d.total, d.rate, d.pagamento, p.id]);
     return r.rows[0];
   });
   bump(); res.json({ ok: true, purchase: mapPurchase(row) });
