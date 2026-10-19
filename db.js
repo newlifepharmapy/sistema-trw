@@ -84,6 +84,7 @@ create table if not exists stock_lots (
   qtd numeric not null default 0,
   unique (product_id, loja, lote, validade)
 );
+alter table stock_lots add column if not exists fornecedor text not null default '';
 
 create table if not exists transfers (
   id serial primary key,
@@ -191,8 +192,16 @@ alter table imports add column if not exists cancelada_em bigint;
 
 async function migrate() {
   const { rows } = await pool.query(`select to_regclass('stock_lots') as t`);
+  const { rows: fc } = await pool.query(`select 1 from information_schema.columns where table_name='stock_lots' and column_name='fornecedor'`);
   await pool.query(SCHEMA);
+  const hadForn = rows[0].t && fc.length > 0;
   if (!rows[0].t) await seedLots();
+  // first run with suppliers on lots: each lot takes the supplier of its latest entry still in force
+  if (!hadForn) await pool.query(`update stock_lots l set fornecedor = x.f from (
+      select distinct on (i->>'pid', p.loja, coalesce(i->>'lote',''), coalesce(i->>'validade',''))
+        (i->>'pid')::int pid, p.loja, coalesce(i->>'lote','') lote, coalesce(i->>'validade','') validade, coalesce(nullif(i->>'fornecedor',''), p.fornecedor) f
+      from purchases p, jsonb_array_elements(p.itens) i where not p.cancelada and i->>'pid' is not null order by i->>'pid', p.loja, coalesce(i->>'lote',''), coalesce(i->>'validade',''), p.ts desc) x
+    where l.product_id = x.pid and l.loja = x.loja and l.lote = x.lote and l.validade = x.validade and l.fornecedor = ''`);
   // the store forms are exactly 15 cm tall (the 6 in = 15,24 cm paper made each note creep 2,4 mm onto the perforation):
   // earlier defaults move to 15 cm once
   await pool.query(`update settings set nota = jsonb_set(coalesce(nota, '{}'::jsonb), '{papel}', '{"altura": 15, "v": 3}'::jsonb)

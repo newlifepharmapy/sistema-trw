@@ -185,7 +185,7 @@
           </div>
           <div id="pLotsBox" class="plots" hidden>
             <div class="row between"><span class="lbl">Lotes em estoque</span><button class="btn small" id="pLotAdd" type="button">Adicionar lote</button></div>
-            <div class="tablewrap"><table><thead><tr><th>Loja</th><th>Lote</th><th>Validade</th><th class="r">Quantidade</th><th></th></tr></thead><tbody id="pLots"></tbody></table></div>
+            <div class="tablewrap"><table><thead><tr><th>Loja</th><th>Lote</th><th>Validade</th><th>Fornecedor</th><th class="r">Quantidade</th><th></th></tr></thead><tbody id="pLots"></tbody></table></div>
             <div class="hint">Compras, vendas e transferências já movem os lotes sozinhas. Use esta lista só para corrigir. O que passar da soma dos lotes fica como “sem lote”.</div>
           </div>
           <div class="row actions"><button class="btn primary" id="pSave">Salvar produto</button><button class="btn" id="pCancel" hidden>Cancelar edição</button><span class="hint">Sem preço fixo em R$, o valor em reais acompanha o dólar automaticamente.</span></div>
@@ -201,7 +201,7 @@
         <div class="card">
           <h2>Nova entrada</h2>
           <div class="fields">
-            <label class="field"><span class="lbl">Fornecedor</span><input type="text" id="bSup" placeholder="Nome do fornecedor"></label>
+            <label class="field"><span class="lbl">Fornecedor</span><input type="text" id="bSup" placeholder="Nome do fornecedor" list="dlFor" autocomplete="off"></label>
             <label class="field"><span class="lbl">Entrada no estoque de</span><select id="bLoja"><option value="PY">Paraguay</option><option value="SP">São Paulo</option></select></label>
             <label class="field"><span class="lbl">Moeda da compra</span><select id="bCur"><option value="USD|EFECTIVO">Dólar (US$) - EFECTIVO</option><option value="USD|USDT">Dólar (US$) - USDT</option><option value="BRL">Real (R$)</option></select></label>
             <label class="field"><span class="lbl">Data</span><input type="date" id="bDate"></label>
@@ -217,9 +217,10 @@
             <label class="field"><span class="lbl">Custo unitário</span><input type="number" id="bCost" min="0" step="0.01"></label>
             <label class="field"><span class="lbl">Lote</span><input type="text" id="bLote" maxlength="60" autocomplete="off"></label>
             <label class="field"><span class="lbl">Validade</span><input type="text" id="bVal" inputmode="numeric" maxlength="7" placeholder="08/2029" autocomplete="off"></label>
+            <label class="field"><span class="lbl">Fornecedor do item</span><input type="text" id="bIFor" maxlength="120" list="dlFor" autocomplete="off" placeholder="O mesmo da entrada"></label>
             <button class="btn" id="bAdd">Adicionar</button>
           </div>
-          <div class="tablewrap"><table><thead><tr><th>Produto</th><th>Lote</th><th>Validade</th><th class="r">Qtd</th><th class="r">Custo un.</th><th class="r" id="bCostFH" hidden>Custo c/ frete</th><th class="r">Subtotal</th><th></th></tr></thead><tbody id="bItems"></tbody></table></div>
+          <div class="tablewrap"><table><thead><tr><th>Produto</th><th>Lote</th><th>Validade</th><th>Fornecedor</th><th class="r">Qtd</th><th class="r">Custo un.</th><th class="r" id="bCostFH" hidden>Custo c/ frete</th><th class="r">Subtotal</th><th></th></tr></thead><tbody id="bItems"></tbody></table></div>
           <div class="row between actions"><div><span class="lbl">Total da entrada</span><div class="num big" id="bTotal">—</div><div class="hint num" id="bTotalSub"></div></div><button class="btn primary" id="bSave">Registrar entrada</button></div>
         </div>
         <div class="card"><h2>Entradas registradas</h2><div class="tablewrap" id="buyList"></div></div>
@@ -460,7 +461,7 @@
   </div>
 </div>
 
-<datalist id="dlGrupo"></datalist><datalist id="dlMarca"></datalist>
+<datalist id="dlGrupo"></datalist><datalist id="dlFor"></datalist><datalist id="dlMarca"></datalist>
 <div id="toastHost"></div>
 <div id="printArea" aria-hidden="true"></div>
 <script src="/app.js"></script>

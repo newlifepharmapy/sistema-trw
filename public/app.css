@@ -119,7 +119,7 @@ input:focus,select:focus{border-color:var(--accent);outline:none;box-shadow:0 0 
 .fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}
 .fields .span2{grid-column:span 2}
 .fields.additem{grid-template-columns:2fr 1fr 1fr auto;align-items:end}
-.fields.additem.lot{grid-template-columns:2fr .7fr 1fr 1fr 1fr auto}
+.fields.additem.lot{grid-template-columns:2fr .6fr .9fr 1fr .9fr 1.3fr auto}
 @media (max-width:640px){.fields .span2{grid-column:auto}.fields.additem,.fields.additem.lot{grid-template-columns:1fr 1fr}}
 .fields.frete{background:var(--sp-soft);border-radius:8px;padding:12px}
 .bigin{font-size:1.3rem}
@@ -260,3 +260,5 @@ td.lotc div{min-height:24px;display:flex;align-items:center;gap:4px}
 .plots{margin-top:16px;display:grid;gap:8px}
 .plots input,.plots select{width:100%;min-width:90px}
 .plots input.q{max-width:110px}
+td.buyitems{min-width:300px}
+td.buyitems > div + div{margin-top:6px}

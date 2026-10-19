@@ -78,7 +78,7 @@ function lotsOf(p, l) {
   for (const x of p.lotes || []) {
     if (l && x.loja !== l) continue;
     const e = out.find(o => o.lote === x.lote && o.validade === x.validade);
-    if (e) e.qtd += +x.qtd; else out.push({ lote: x.lote, validade: x.validade, qtd: +x.qtd });
+    if (e) { e.qtd += +x.qtd; if (!e.fornecedor) e.fornecedor = x.fornecedor || ''; } else out.push({ lote: x.lote, validade: x.validade, qtd: +x.qtd, fornecedor: x.fornecedor || '' });
   }
   const k = x => x.validade || '9999';
   return out.sort((a, b) => k(a) < k(b) ? -1 : k(a) > k(b) ? 1 : a.lote.localeCompare(b.lote));
@@ -87,13 +87,14 @@ const noLotQty = (p, l) => l ? Math.max(0, stockOf(p, l) - lotsOf(p, l).reduce((
 const firstLot = (p, l) => lotsOf(p, l)[0] || null;
 const lotKey = x => JSON.stringify([x.lote || '', x.validade || '']);
 const lotName = x => [x.lote ? 'Lote ' + x.lote : 'Sem lote', x.validade ? 'val. ' + fVal(x.validade) : ''].filter(Boolean).join(' · ');
-// Lote and Validade cells of the stock tables: one line per lot with its quantity
+// Lote, Validade and Fornecedor cells of the stock tables: one line per lot with its quantity
 function lotCells(p, l) {
   const L = lotsOf(p, l), free = noLotQty(p, l), n = v => (+v).toLocaleString('pt-BR');
-  if (!L.length) return `<td class="num"><span class="hint">—</span></td><td><span class="hint">—</span></td>`;
+  if (!L.length) return `<td class="num"><span class="hint">—</span></td><td><span class="hint">—</span></td><td><span class="hint">—</span></td>`;
   if (free > 0) L.push({ lote: '', validade: '', qtd: free });
   return `<td class="num lotc">${L.map(x => `<div>${x.lote ? esc(x.lote) : '<span class="hint">Sem lote</span>'} <span class="hint">· ${n(x.qtd)} un.</span></div>`).join('')}</td>`
-    + `<td class="lotc" style="white-space:nowrap">${L.map(x => `<div>${valPill(x.validade)}</div>`).join('')}</td>`;
+    + `<td class="lotc" style="white-space:nowrap">${L.map(x => `<div>${valPill(x.validade)}</div>`).join('')}</td>`
+    + `<td class="lotc">${L.map(x => `<div>${x.fornecedor ? esc(x.fornecedor) : '<span class="hint">—</span>'}</div>`).join('')}</td>`;
 }
 function valPill(d) {
   if (!d) return '<span class="hint">—</span>';
@@ -437,15 +438,15 @@ $('#bAdd').onclick = () => {
   const p = S.products.find(x => x.id === +$('#bProd').value), q = +$('#bQty').value, c = +$('#bCost').value;
   if (!p) return toast('Escolha um produto. Cadastre-o antes em Produtos.', true); if (!(q > 0) || !(c >= 0)) return toast('Informe quantidade e custo.', true);
   const val = $('#bVal').value.trim(); if (val && !monthEnd(val)) return toast('Validade inválida. Use mês e ano, ex.: 05/2027.', true);
-  S.buyItems.push({ pid: p.id, nome: p.nome, qtd: q, custo: c, lote: $('#bLote').value.trim(), validade: monthEnd(val) }); $('#bQty').value = 1; $('#bCost').value = ''; $('#bLote').value = ''; $('#bVal').value = ''; renderBuyItems();
+  S.buyItems.push({ pid: p.id, nome: p.nome, qtd: q, custo: c, lote: $('#bLote').value.trim(), validade: monthEnd(val), fornecedor: $('#bIFor').value.trim() }); $('#bQty').value = 1; $('#bCost').value = ''; $('#bLote').value = ''; $('#bVal').value = ''; renderBuyItems();
 };
-$('#bCur').onchange = renderBuyItems; $('#bLoja').onchange = renderBuyItems; $('#bFrete').oninput = renderBuyItems;
+$('#bSup').oninput = renderBuyItems; $('#bCur').onchange = renderBuyItems; $('#bLoja').onchange = renderBuyItems; $('#bFrete').oninput = renderBuyItems;
 const freteOn = () => $('#bLoja').value === 'SP';
 const fretePct = () => freteOn() ? Math.max(0, +$('#bFrete').value || 0) : 0;
 function renderBuyItems() {
   const cur = bCurV(), fp = fretePct(), fon = freteOn();
   $('#bFreteBox').hidden = !fon; $('#bCostFH').hidden = !fon;
-  $('#bItems').innerHTML = S.buyItems.map((i, k) => `<tr><td>${esc(i.nome)}</td><td class="num">${esc(i.lote || '—')}</td><td class="num">${i.validade ? fVal(i.validade) : '—'}</td><td class="r num">${i.qtd}</td><td class="r num">${fm(i.custo, cur)}</td>${fon ? `<td class="r num"><b>${fm(i.custo * (1 + fp / 100), cur)}</b></td>` : ''}<td class="r num">${fm(i.qtd * i.custo * (1 + fp / 100), cur)}</td><td><button class="x" data-bi="${k}" aria-label="Remover">×</button></td></tr>`).join('') || '<tr><td colspan="8" class="empty">Adicione os produtos desta entrada.</td></tr>';
+  $('#bItems').innerHTML = S.buyItems.map((i, k) => `<tr><td>${esc(i.nome)}</td><td class="num">${esc(i.lote || '—')}</td><td class="num">${i.validade ? fVal(i.validade) : '—'}</td><td>${i.fornecedor ? esc(i.fornecedor) : `<span class="hint">${esc($('#bSup').value.trim() || '—')}</span>`}</td><td class="r num">${i.qtd}</td><td class="r num">${fm(i.custo, cur)}</td>${fon ? `<td class="r num"><b>${fm(i.custo * (1 + fp / 100), cur)}</b></td>` : ''}<td class="r num">${fm(i.qtd * i.custo * (1 + fp / 100), cur)}</td><td><button class="x" data-bi="${k}" aria-label="Remover">×</button></td></tr>`).join('') || '<tr><td colspan="9" class="empty">Adicione os produtos desta entrada.</td></tr>';
   const sub = S.buyItems.reduce((a, i) => a + i.qtd * i.custo, 0), fv = sub * fp / 100, t = sub + fv, o = cur === 'USD' ? 'BRL' : 'USD';
   $('#bTotal').textContent = S.buyItems.length ? `${fm(t, cur)}  ·  ${fm(conv(t, cur, o), o)}` : '—';
   $('#bTotalSub').textContent = S.buyItems.length && fon ? `Mercadoria ${fm(sub, cur)} + frete ${fp}% ${fm(fv, cur)}` : '';
@@ -464,7 +465,7 @@ function renderBuy() {
   const sel = $('#bProd'), v = sel.value; sel.innerHTML = productOptions(); sel.value = v;
   renderBuyItems();
   const L = S.purchases.slice(0, 200);
-  $('#buyList').innerHTML = L.length ? `<table><thead><tr><th>Data</th><th>Fornecedor</th><th>Destino</th><th>Itens</th><th>Frete</th><th>Registrado por</th><th class="r">Total</th><th></th></tr></thead><tbody>${L.map(p => { const o = p.moeda === 'USD' ? 'BRL' : 'USD'; return `<tr class="${p.cancelada ? 'cancel' : ''}"><td class="num">${fDate(p.data)}</td><td>${esc(p.fornecedor || '—')}</td><td><span class="pill ${p.loja.toLowerCase()}">${p.loja}</span></td><td>${(p.itens || []).map(i => `${i.qtd}× ${esc(i.nome)}`).join(', ')}</td><td>${p.freteiro || +p.fretePct ? `${esc(p.freteiro || '—')}<div class="hint num">${+p.fretePct || 0}% · ${fm(+p.freteValor || 0, p.moeda)}</div>` : '—'}</td><td>${esc(p.criadoPor)}</td><td class="r num"><b>${fm(p.total, p.moeda)}</b><div class="hint">${p.pagamento ? esc(p.pagamento) + ' · ' : ''}${fm(conv(p.total, p.moeda, o), o)}</div></td><td class="r" style="white-space:nowrap"><button class="btn small" data-printp="${p.id}">Imprimir</button> <button class="btn small" data-wap="${p.id}">WhatsApp</button>${p.cancelada ? ' <span class="pill bad">cancelada</span>' + (can('excluir') ? ` <button class="btn small danger" data-delp2="${p.id}">Excluir</button>` : '') : can('cancelar') ? ` <button class="btn small danger" data-cancelp="${p.id}">Cancelar</button>` : ''}</td></tr>`; }).join('')}</tbody></table>` : '<div class="empty">Nenhuma entrada registrada.</div>';
+  $('#buyList').innerHTML = L.length ? `<table><thead><tr><th>Data</th><th>Fornecedor</th><th>Destino</th><th>Itens</th><th>Frete</th><th>Registrado por</th><th class="r">Total</th><th></th></tr></thead><tbody>${L.map(p => { const o = p.moeda === 'USD' ? 'BRL' : 'USD'; return `<tr class="${p.cancelada ? 'cancel' : ''}"><td class="num">${fDate(p.data)}</td><td>${esc(p.fornecedor || '—')}</td><td><span class="pill ${p.loja.toLowerCase()}">${p.loja}</span></td><td class="buyitems">${(p.itens || []).map(i => `<div>${i.qtd}× ${esc(i.nome)}<div class="hint">${[i.lote ? 'lote ' + esc(i.lote) : '', i.validade ? 'val. ' + fVal(i.validade) : '', (i.fornecedor || p.fornecedor) ? esc(i.fornecedor || p.fornecedor) : '', fm(i.custo, p.moeda) + ' un.'].filter(Boolean).join(' · ')}</div></div>`).join('')}</td><td>${p.freteiro || +p.fretePct ? `${esc(p.freteiro || '—')}<div class="hint num">${+p.fretePct || 0}% · ${fm(+p.freteValor || 0, p.moeda)}</div>` : '—'}</td><td>${esc(p.criadoPor)}</td><td class="r num"><b>${fm(p.total, p.moeda)}</b><div class="hint">${p.pagamento ? esc(p.pagamento) + ' · ' : ''}${fm(conv(p.total, p.moeda, o), o)}</div></td><td class="r" style="white-space:nowrap"><button class="btn small" data-printp="${p.id}">Imprimir</button> <button class="btn small" data-wap="${p.id}">WhatsApp</button>${p.cancelada ? ' <span class="pill bad">cancelada</span>' + (can('excluir') ? ` <button class="btn small danger" data-delp2="${p.id}">Excluir</button>` : '') : can('cancelar') ? ` <button class="btn small danger" data-cancelp="${p.id}">Cancelar</button>` : ''}</td></tr>`; }).join('')}</tbody></table>` : '<div class="empty">Nenhuma entrada registrada.</div>';
 }
 
 /* ---------- imports ---------- */
@@ -548,6 +549,8 @@ function fillGM(gSel, mSel) {
 }
 const gmMatch = (p, gSel, mSel) => (!gSel || !gSel.value || gOf(p) === gSel.value) && (!mSel || !mSel.value || mOf(p) === mSel.value);
 function fillDatalists() {
+  const fs = [...new Set(S.purchases.flatMap(p => [p.fornecedor, ...(p.itens || []).map(i => i.fornecedor)]).concat(S.products.flatMap(p => (p.lotes || []).map(x => x.fornecedor))).map(x => (x || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  $('#dlFor').innerHTML = fs.map(x => `<option value="${esc(x)}">`).join('');
   $('#dlGrupo').innerHTML = uniq(p => (p.grupo || '').trim()).filter(Boolean).map(x => `<option value="${esc(x)}">`).join('');
   $('#dlMarca').innerHTML = uniq(p => (p.marca || '').trim()).filter(Boolean).map(x => `<option value="${esc(x)}">`).join('');
 }
@@ -569,7 +572,7 @@ function renderStock() {
   const f = $('#sFilter').value.trim().toLowerCase(), L = S.products.filter(p => matchP(p, f) && gmMatch(p, $('#sGrupo'), $('#sMarca')));
   const cell = n => `<td class="r"><span class="pill num ${n <= 0 ? 'bad' : n <= 3 ? 'warn' : ''}">${nf0(n)}</span></td>`;
   const sumL = fn => nf0(L.reduce((a, p) => a + fn(p), 0));
-  $('#stockList').innerHTML = L.length ? `<table><thead><tr><th>Código</th><th>Produto</th><th>Marca</th><th>Lote</th><th>Validade</th><th class="r">Total</th><th class="r"><span class="row" style="justify-content:flex-end;gap:6px">${FLAG_PY}PY</span></th><th class="r"><span class="row" style="justify-content:flex-end;gap:6px">${FLAG_BR}BR</span></th></tr></thead><tbody>${groupedRows(L, 8, p => `<tr><td class="num">${esc(p.codigo || '')}</td><td>${esc(p.nome)}</td><td>${esc(p.marca || '—')}</td>${lotCells(p)}<td class="r num"><b>${nf0(stockOf(p, 'PY') + stockOf(p, 'SP'))}</b></td>${cell(stockOf(p, 'PY'))}${cell(stockOf(p, 'SP'))}</tr>`, a => nf0(a.reduce((x, p) => x + stockOf(p, 'PY') + stockOf(p, 'SP'), 0)) + ' un.')}</tbody><tfoot><tr><td></td><td>Total</td><td></td><td></td><td></td><td class="r num">${sumL(p => stockOf(p, 'PY') + stockOf(p, 'SP'))}</td><td class="r num">${sumL(p => stockOf(p, 'PY'))}</td><td class="r num">${sumL(p => stockOf(p, 'SP'))}</td></tr></tfoot></table>`
+  $('#stockList').innerHTML = L.length ? `<table><thead><tr><th>Código</th><th>Produto</th><th>Marca</th><th>Lote</th><th>Validade</th><th>Fornecedor</th><th class="r">Total</th><th class="r"><span class="row" style="justify-content:flex-end;gap:6px">${FLAG_PY}PY</span></th><th class="r"><span class="row" style="justify-content:flex-end;gap:6px">${FLAG_BR}BR</span></th></tr></thead><tbody>${groupedRows(L, 9, p => `<tr><td class="num">${esc(p.codigo || '')}</td><td>${esc(p.nome)}</td><td>${esc(p.marca || '—')}</td>${lotCells(p)}<td class="r num"><b>${nf0(stockOf(p, 'PY') + stockOf(p, 'SP'))}</b></td>${cell(stockOf(p, 'PY'))}${cell(stockOf(p, 'SP'))}</tr>`, a => nf0(a.reduce((x, p) => x + stockOf(p, 'PY') + stockOf(p, 'SP'), 0)) + ' un.')}</tbody><tfoot><tr><td></td><td>Total</td><td></td><td></td><td></td><td></td><td class="r num">${sumL(p => stockOf(p, 'PY') + stockOf(p, 'SP'))}</td><td class="r num">${sumL(p => stockOf(p, 'PY'))}</td><td class="r num">${sumL(p => stockOf(p, 'SP'))}</td></tr></tfoot></table>`
     : `<div class="empty">${S.products.length ? 'Nenhum produto encontrado.' : 'Nenhum produto cadastrado ainda.'}</div>`;
 }
 
@@ -639,13 +642,13 @@ function renderStore(l) {
   const f = $('#sf-' + l).value.trim().toLowerCase();
   const L = S.products.filter(p => matchP(p, f) && gmMatch(p, $('#sg-g-' + l), $('#sg-m-' + l)) && (view === 'todos' || (view === 'com' ? qty(p) > 0 : qty(p) <= 0))).sort((a, b) => qty(b) - qty(a) || a.nome.localeCompare(b.nome));
   const tot = fn => L.reduce((a, p) => a + Math.max(0, qty(p)) * fn(p), 0);
-  $('#sl-' + l).innerHTML = L.length ? `<table><thead><tr><th>Código</th><th>Produto</th><th>Marca</th><th>Lote</th><th>Validade</th><th class="r">Qtd</th><th class="r">Custo un.</th><th class="r">Custo total</th><th class="r">Preço un.</th><th class="r">Valor de venda</th></tr></thead><tbody>${groupedRows(L, 10, p => `<tr><td class="num">${esc(p.codigo || '')}</td><td>${esc(p.nome)}</td><td>${esc(p.marca || '—')}</td>${lotCells(p, l)}
+  $('#sl-' + l).innerHTML = L.length ? `<table><thead><tr><th>Código</th><th>Produto</th><th>Marca</th><th>Lote</th><th>Validade</th><th>Fornecedor</th><th class="r">Qtd</th><th class="r">Custo un.</th><th class="r">Custo total</th><th class="r">Preço un.</th><th class="r">Valor de venda</th></tr></thead><tbody>${groupedRows(L, 11, p => `<tr><td class="num">${esc(p.codigo || '')}</td><td>${esc(p.nome)}</td><td>${esc(p.marca || '—')}</td>${lotCells(p, l)}
       <td class="r"><span class="pill num ${qty(p) <= 0 ? 'bad' : qty(p) <= 3 ? 'warn' : ''}">${nf0(qty(p))}</span></td>
       <td class="r num">${fm(+p.custo || 0, 'USD')}<div class="hint">${fm(costIn(p, 'BRL'), 'BRL')}</div></td>
       <td class="r num">${fm(Math.max(0, qty(p)) * (+p.custo || 0), 'USD')}</td>
       <td class="r num">${fm(price(p), cur)}<div class="hint">${fm(conv(price(p), cur, o), o)}</div></td>
       <td class="r num"><b>${fm(Math.max(0, qty(p)) * price(p), cur)}</b><div class="hint">${fm(conv(Math.max(0, qty(p)) * price(p), cur, o), o)}</div></td></tr>`, a => nf0(a.reduce((x, p) => x + Math.max(0, qty(p)), 0)) + ' un. · ' + fm(a.reduce((x, p) => x + Math.max(0, qty(p)) * price(p), 0), cur))}</tbody>
-      <tfoot><tr><td></td><td>Total</td><td></td><td></td><td></td><td class="r num">${nf0(L.reduce((a, p) => a + Math.max(0, qty(p)), 0))}</td><td></td><td class="r num">${fm(tot(p => +p.custo || 0), 'USD')}</td><td></td><td class="r num">${fm(tot(price), cur)}</td></tr></tfoot></table>`
+      <tfoot><tr><td></td><td>Total</td><td></td><td></td><td></td><td></td><td class="r num">${nf0(L.reduce((a, p) => a + Math.max(0, qty(p)), 0))}</td><td></td><td class="r num">${fm(tot(p => +p.custo || 0), 'USD')}</td><td></td><td class="r num">${fm(tot(price), cur)}</td></tr></tfoot></table>`
     : `<div class="empty">${S.products.length ? 'Nenhum produto neste filtro.' : 'Nenhum produto cadastrado ainda.'}</div>`;
 }
 
@@ -657,7 +660,7 @@ function fillP(p) {
   $('#pCode').value = p?.codigo || ''; $('#pName').value = p?.nome || ''; $('#pGrupo').value = p?.grupo || ''; $('#pMarca').value = p?.marca || '';
   $('#pCost').value = p?.custo ?? ''; $('#pPriceUsd').value = p?.precoUsd ?? ''; $('#pPriceBrl').value = p?.precoBrl || '';
   $('#pStPY').value = p ? stockOf(p, 'PY') : ''; $('#pStSP').value = p ? stockOf(p, 'SP') : '';
-  pLots = p ? (p.lotes || []).map(x => ({ loja: x.loja, lote: x.lote, val: fVal(x.validade), qtd: x.qtd })) : [];
+  pLots = p ? (p.lotes || []).map(x => ({ loja: x.loja, lote: x.lote, val: fVal(x.validade), qtd: x.qtd, forn: x.fornecedor || '' })) : [];
   $('#pLotsBox').hidden = !p; drawPLots();
 }
 // lot list of the product being edited, to fix the quantities by hand
@@ -666,10 +669,11 @@ function drawPLots() {
   $('#pLots').innerHTML = pLots.map((x, i) => `<tr><td><select data-pl="${i}" data-k="loja"><option value="PY" ${x.loja === 'PY' ? 'selected' : ''}>Paraguay</option><option value="SP" ${x.loja === 'SP' ? 'selected' : ''}>São Paulo</option></select></td>
     <td><input type="text" data-pl="${i}" data-k="lote" value="${esc(x.lote)}" maxlength="60" autocomplete="off"></td>
     <td><input type="text" data-pl="${i}" data-k="val" value="${esc(x.val)}" inputmode="numeric" maxlength="7" placeholder="08/2029" autocomplete="off"></td>
+ <td><input type="text" data-pl="${i}" data-k="forn" value="${esc(x.forn || '')}" maxlength="120" list="dlFor" autocomplete="off"></td>
     <td class="r"><input type="number" data-pl="${i}" data-k="qtd" value="${x.qtd}" min="0" step="1" class="q"></td><td><button class="x" data-plx="${i}" type="button" aria-label="Remover">×</button></td></tr>`).join('')
-    || '<tr><td colspan="5" class="empty">Nenhum lote. Todo o estoque deste produto está sem lote.</td></tr>';
+    || '<tr><td colspan="6" class="empty">Nenhum lote. Todo o estoque deste produto está sem lote.</td></tr>';
 }
-$('#pLotAdd').onclick = () => { pLots.push({ loja: 'PY', lote: '', val: '', qtd: 0 }); drawPLots(); $$('#pLots input[data-k="lote"]').pop()?.focus(); };
+$('#pLotAdd').onclick = () => { pLots.push({ loja: 'PY', lote: '', val: '', qtd: 0, forn: '' }); drawPLots(); $$('#pLots input[data-k="lote"]').pop()?.focus(); };
 $('#pLots').addEventListener('input', e => {
   const x = pLots[+e.target.dataset.pl]; if (!x) return;
   if (e.target.dataset.k === 'val') { const d = e.target.value.replace(/\D/g, '').slice(0, 6); e.target.value = d.length > 2 ? d.slice(0, 2) + '/' + d.slice(2) : d; }
@@ -684,7 +688,7 @@ $('#pSave').onclick = async () => {
   if (editP) {
     const badV = pLots.find(x => x.val.trim() && !monthEnd(x.val));
     if (badV) return toast('Validade de lote inválida. Use mês e ano, ex.: 08/2029.', true);
-    doc.lotes = pLots.filter(x => x.qtd > 0 && (x.lote.trim() || x.val.trim())).map(x => ({ loja: x.loja, lote: x.lote.trim(), validade: monthEnd(x.val), qtd: x.qtd }));
+    doc.lotes = pLots.filter(x => x.qtd > 0 && (x.lote.trim() || x.val.trim())).map(x => ({ loja: x.loja, lote: x.lote.trim(), validade: monthEnd(x.val), qtd: x.qtd, fornecedor: (x.forn || '').trim() }));
   }
   if (await act(() => editP ? api('/products/' + editP, 'PUT', doc) : api('/products', 'POST', doc), 'Produto salvo.')) fillP(null);
 };

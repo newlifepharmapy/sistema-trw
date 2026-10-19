@@ -150,6 +150,14 @@ function client() {
   // stock by lot: each entry adds to its lot, sales take the lot that expires first (or the one picked)
   const lp2 = (await adm('/api/products', 'POST', { codigo: 'LOT1', nome: 'Produto com lotes', custo: 1, precoUsd: 2, estoque: { PY: 0, SP: 0 } })).data.id;
   const e1 = await adm('/api/purchases', 'POST', { loja: 'PY', moeda: 'USD', itens: [{ pid: lp2, qtd: 10, custo: 1, lote: 'A', validade: '2028-05-01' }, { pid: lp2, qtd: 5, custo: 1, lote: 'B', validade: '2027-01-01' }] });
+  const ef = await adm('/api/purchases', 'POST', { loja: 'PY', moeda: 'USD', fornecedor: 'Distribuidora Geral', itens: [{ pid: lp2, qtd: 2, custo: 1, lote: 'F1', validade: '2030-01-01', fornecedor: 'Lab Alfa' }, { pid: lp2, qtd: 1, custo: 1, lote: 'F2', validade: '2030-02-01' }] });
+  let fl = (await adm('/api/data')).data.products.find(x => x.id === lp2).lotes;
+  assert(ef.data.purchase.itens[0].fornecedor === 'Lab Alfa' && ef.data.purchase.itens[1].fornecedor === 'Distribuidora Geral' && fl.find(x => x.lote === 'F1').fornecedor === 'Lab Alfa' && fl.find(x => x.lote === 'F2').fornecedor === 'Distribuidora Geral', 'cada item e cada lote guardam seu fornecedor');
+  const sf = await adm('/api/sales', 'POST', { loja: 'PY', moeda: 'USD', pagamento: 'EFETIVO', itens: [{ pid: lp2, qtd: 2, preco: 2, lotePref: { lote: 'F1', validade: '2030-01-31' } }] });
+  await adm(`/api/sales/${sf.data.sale.id}/cancel`, 'POST', {});
+  fl = (await adm('/api/data')).data.products.find(x => x.id === lp2).lotes;
+  assert(fl.find(x => x.lote === 'F1').fornecedor === 'Lab Alfa', 'lote vendido e devolvido mantém o fornecedor');
+  await adm(`/api/purchases/${ef.data.purchase.id}/cancel`, 'POST', {});
   const lotsNow = async () => (await adm('/api/data')).data.products.find(x => x.id === lp2);
   let lx = await lotsNow();
   assert(lx.estoque.PY === 15 && lx.lotes.length === 2 && lx.lotes[0].lote === 'B' && lx.lotes[0].qtd === 5 && lx.lotes[1].qtd === 10 && lx.lote === 'B', 'cada lote com sua quantidade, o que vence primeiro na frente');
