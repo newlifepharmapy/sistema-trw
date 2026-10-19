@@ -960,7 +960,7 @@ $('#setupForm').onsubmit = async e => {
   finally { $('#sGo').disabled = false; }
 };
 /* ---------- quotes ---------- */
-const quoteDoc = q => ({ ...q, kind: 'orcamento', pagamento: '', validadeOrc: q.validade, cancelada: q.status === 'cancelado' });
+const quoteDoc = q => ({ ...q, kind: 'orcamento', pagamento: '', validadeOrc: q.validade, cancelada: q.status === 'cancelado', frete: +q.freteValor || q.freteiro ? { pct: +q.fretePct || 0, valor: +q.freteValor || 0, freteiro: q.freteiro } : null });
 const qExpired = q => q.status === 'aberto' && q.validade && q.validade < today();
 function oStores() { return ['PY', 'SP'].filter(l => can('vendas_' + l)); }
 function oSetLoja() {
@@ -979,11 +979,18 @@ $('#oAdd').onclick = () => {
   if (ex) { ex.qtd += q; ex.preco = pr; } else S.orcItems.push({ pid: p.id, nome: p.nome, codigo: p.codigo || '', qtd: q, preco: pr });
   $('#oQty').value = 1; $('#oPrice').value = ''; $('#oProd').value = ''; renderOrc();
 };
-function oTotals() {
-  const cur = $('#oCur').value, o = cur === 'USD' ? 'BRL' : 'USD', t = S.orcItems.reduce((a, i) => a + i.qtd * i.preco, 0);
-  $('#oTotal').textContent = S.orcItems.length ? fm(t, cur) : '—';
-  $('#oTotalSub').textContent = S.orcItems.length && S.rate ? '≈ ' + fm(conv(t, cur, o), o) : '';
+// the freight is kept as whichever of % or value was typed last; the other one follows the products' subtotal
+function oFrete(sub) {
+  if (S.orcFreteBy === 'v') { const v = Math.max(0, +$('#oFreteVal').value || 0); if (document.activeElement !== $('#oFretePct')) $('#oFretePct').value = v && sub ? r2(v / sub * 100) : ''; return v; }
+  const v = r2(sub * Math.max(0, +$('#oFretePct').value || 0) / 100); if (document.activeElement !== $('#oFreteVal')) $('#oFreteVal').value = v || ''; return v;
 }
+function oTotals() {
+  const cur = $('#oCur').value, o = cur === 'USD' ? 'BRL' : 'USD', sub = S.orcItems.reduce((a, i) => a + i.qtd * i.preco, 0), fr = oFrete(sub), t = sub + fr;
+  $('#oTotal').textContent = S.orcItems.length ? fm(t, cur) : '—';
+  $('#oTotalSub').textContent = S.orcItems.length ? [fr ? `produtos ${fm(sub, cur)} + frete ${fm(fr, cur)}` : '', S.rate ? '≈ ' + fm(conv(t, cur, o), o) : ''].filter(Boolean).join(' · ') : '';
+}
+$('#oFretePct').oninput = () => { S.orcFreteBy = 'p'; oTotals(); };
+$('#oFreteVal').oninput = () => { S.orcFreteBy = 'v'; oTotals(); };
 // quantity and price of each item are typed straight into the list; only the subtotal and total redraw, so the field keeps focus
 $('#oItems').addEventListener('input', e => {
   const it = S.orcItems[+e.target.dataset.ok]; if (!it) return;
@@ -998,7 +1005,7 @@ $('#oSave').onclick = async () => {
   if (!S.orcItems.length) { renderOrc(); return toast('Adicione pelo menos um produto.', true); }
   if (S.orcItems.some(i => !(i.preco > 0))) return toast('Há produto sem preço. Informe o preço antes de salvar.', true);
   $('#oSave').disabled = true;
-  const r = await act(() => api(S.orcEdit ? '/quotes/' + S.orcEdit : '/quotes', S.orcEdit ? 'PUT' : 'POST', { loja: $('#oLoja').value, moeda: $('#oCur').value, cliente: $('#oCli').value, obs: $('#oObs').value, validadeDias: +$('#oDias').value || 7, itens: S.orcItems.map(i => ({ pid: i.pid, nome: i.nome, qtd: i.qtd, preco: i.preco })) }));
+  const r = await act(() => api(S.orcEdit ? '/quotes/' + S.orcEdit : '/quotes', S.orcEdit ? 'PUT' : 'POST', { loja: $('#oLoja').value, moeda: $('#oCur').value, cliente: $('#oCli').value, obs: $('#oObs').value, validadeDias: +$('#oDias').value || 7, freteiro: $('#oFreteiro').value, ...(S.orcFreteBy === 'v' ? { freteValor: +$('#oFreteVal').value || 0 } : { fretePct: +$('#oFretePct').value || 0 }), itens: S.orcItems.map(i => ({ pid: i.pid, nome: i.nome, qtd: i.qtd, preco: i.preco })) }));
   $('#oSave').disabled = false;
   if (r) { oEditEnd(); askDoc(quoteDoc(r.quote)); }
 };
@@ -1009,12 +1016,13 @@ function oEditStart(q) {
   S.orcEdit = q.id;
   oSetLoja(); $('#oLoja').value = q.loja; $('#oCur').value = q.moeda;
   $('#oCli').value = q.cliente || ''; $('#oObs').value = q.obs || '';
+  $('#oFreteiro').value = q.freteiro || ''; $('#oFretePct').value = +q.fretePct || ''; $('#oFreteVal').value = +q.freteValor || ''; S.orcFreteBy = +q.freteValor ? 'v' : 'p';
   $('#oDias').value = Math.max(1, q.validade ? daysTo(q.validade) : 7);
   S.orcItems = (q.itens || []).map(i => ({ pid: i.pid, nome: i.nome, codigo: i.codigo || '', qtd: i.qtd, preco: i.preco }));
   renderOrc(); $('#oTitle').scrollIntoView({ behavior: 'smooth' });
 }
 function oEditEnd() {
-  S.orcEdit = null; S.orcItems = []; $('#oCli').value = ''; $('#oObs').value = ''; $('#oDias').value = 7; renderOrc();
+  S.orcEdit = null; S.orcItems = []; $('#oCli').value = ''; $('#oObs').value = ''; $('#oFreteiro').value = ''; $('#oFretePct').value = ''; $('#oFreteVal').value = ''; S.orcFreteBy = 'p'; $('#oDias').value = 7; renderOrc();
 }
 $('#oEditCancel').onclick = oEditEnd;
 function quoteToCart(q) {
@@ -1023,7 +1031,7 @@ function quoteToCart(q) {
   c.items = q.itens.map(i => { const p = S.products.find(x => x.id === i.pid); return { pid: i.pid, nome: i.nome, codigo: i.codigo || '', lk: '', qtd: i.qtd, preco: i.preco }; });
   c.cur = q.moeda; c.quoteId = q.id;
   show(q.loja); $('#cli-' + q.loja).value = q.cliente || ''; renderCart(q.loja);
-  toast(`Orçamento nº ${q.id} no carrinho. Confira e finalize a venda.`);
+  toast(`Orçamento nº ${q.id} no carrinho. Confira e finalize a venda.${+q.freteValor ? ' O frete do orçamento não entra na venda.' : ''}`);
 }
 document.addEventListener('click', async e => {
   const pr = e.target.closest('[data-oprint]'), wa = e.target.closest('[data-owa]'), sell = e.target.closest('[data-osell]'), ca = e.target.closest('[data-ocancel]'), de = e.target.closest('[data-odel]');
@@ -1055,7 +1063,7 @@ function renderOrc() {
   const f = $('#oFilter').value, L = S.quotes.filter(q => f === 'all' || q.status === f).slice(0, 300);
   const stPill = q => q.status === 'vendido' ? '<span class="pill ok">virou venda</span>' : q.status === 'cancelado' ? '<span class="pill bad">cancelado</span>' : qExpired(q) ? '<span class="pill warn">vencido</span>' : '<span class="pill">em aberto</span>';
   $('#orcList').innerHTML = L.length ? `<table><thead><tr><th>Nº</th><th>Data</th><th>Loja</th><th>Cliente</th><th>Itens</th><th>Válido até</th><th>Situação</th><th class="r">Total</th><th></th></tr></thead><tbody>${L.map(q => { const oc = q.moeda === 'USD' ? 'BRL' : 'USD';
-    return `<tr class="${q.status === 'cancelado' ? 'cancel' : ''}"><td class="num">${String(q.id).padStart(6, '0')}</td><td class="num">${fDate(q.data)}</td><td><span class="pill ${q.loja.toLowerCase()}">${q.loja}</span></td><td>${esc(q.cliente || '—')}</td><td>${itemLines(q.itens, q.moeda)}</td><td class="num">${q.validade ? fDate(q.validade) : '—'}</td><td>${stPill(q)}</td><td class="r num"><b>${fm(q.total, q.moeda)}</b><div class="hint">${fm(saleIn(q, oc), oc)}</div></td>
+    return `<tr class="${q.status === 'cancelado' ? 'cancel' : ''}"><td class="num">${String(q.id).padStart(6, '0')}</td><td class="num">${fDate(q.data)}</td><td><span class="pill ${q.loja.toLowerCase()}">${q.loja}</span></td><td>${esc(q.cliente || '—')}</td><td>${itemLines(q.itens, q.moeda)}</td><td class="num">${q.validade ? fDate(q.validade) : '—'}</td><td>${stPill(q)}</td><td class="r num"><b>${fm(q.total, q.moeda)}</b><div class="hint">${fm(saleIn(q, oc), oc)}</div>${+q.freteValor ? `<div class="hint">frete ${fm(+q.freteValor, q.moeda)}${q.freteiro ? ' · ' + esc(q.freteiro) : ''}</div>` : ''}</td>
       <td class="r" style="white-space:nowrap"><button class="btn small" data-oprint="${q.id}">Imprimir</button> <button class="btn small" data-owa="${q.id}">WhatsApp</button>${q.status === 'aberto' ? ` <button class="btn small" data-oedit="${q.id}">Editar</button> <button class="btn small primary" data-osell="${q.id}">Vender</button> <button class="btn small danger" data-ocancel="${q.id}">Cancelar</button>` : ''}${q.status === 'cancelado' && can('excluir') ? ` <button class="btn small danger" data-odel="${q.id}">Excluir</button>` : ''}</td></tr>`; }).join('')}</tbody></table>`
     : `<div class="empty">${S.quotes.length ? 'Nenhum orçamento neste filtro.' : 'Nenhum orçamento ainda.'}</div>`;
 }

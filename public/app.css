@@ -122,6 +122,8 @@ input:focus,select:focus{border-color:var(--accent);outline:none;box-shadow:0 0 
 .fields.additem.lot{grid-template-columns:2fr .6fr .9fr 1fr .9fr 1.3fr auto}
 @media (max-width:640px){.fields .span2{grid-column:auto}.fields.additem,.fields.additem.lot{grid-template-columns:1fr 1fr}}
 .fields.frete{background:var(--sp-soft);border-radius:8px;padding:12px}
+.fields.orcfrete{grid-template-columns:2fr 1fr 1fr;margin-bottom:12px}
+@media (max-width:640px){.fields.orcfrete{grid-template-columns:1fr 1fr}.fields.orcfrete .field:first-child{grid-column:span 2}}
 .bigin{font-size:1.3rem}
 .big{font-size:1.3rem;font-weight:600}
 .sub{margin-top:4px}

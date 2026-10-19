@@ -243,6 +243,11 @@
             <button class="btn" id="oAdd">Adicionar</button>
           </div>
           <div class="tablewrap"><table><thead><tr><th>Produto</th><th class="r">Estoque</th><th class="r">Qtd</th><th class="r">Preço un.</th><th class="r">Subtotal</th><th></th></tr></thead><tbody id="oItems"></tbody></table></div>
+          <div class="fields frete orcfrete">
+            <label class="field"><span class="lbl">Freteiro (opcional)</span><input type="text" id="oFreteiro" maxlength="80" placeholder="Nome do freteiro"></label>
+            <label class="field"><span class="lbl">Frete (%)</span><input type="number" id="oFretePct" min="0" step="0.01" placeholder="Ex.: 8"></label>
+            <label class="field"><span class="lbl">Frete (valor)</span><input type="number" id="oFreteVal" min="0" step="0.01" placeholder="Ex.: 25"></label>
+          </div>
           <label class="field"><span class="lbl">Observação (sai no orçamento)</span><input type="text" id="oObs" maxlength="500" placeholder="Ex.: entrega em 3 dias, pagamento via PIX"></label>
           <div class="row between actions"><div><span class="lbl">Total do orçamento</span><div class="num big" id="oTotal">—</div><div class="hint num" id="oTotalSub"></div></div><button class="btn primary" id="oSave">Salvar orçamento</button></div>
         </div>

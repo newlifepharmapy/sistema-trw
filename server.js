@@ -96,7 +96,7 @@ const canStore = (u, l) => has(u, 'vendas_' + l);
 const pubUser = u => ({ id: u.id, login: u.login, nome: u.nome, papel: u.papel, loja: u.loja, telefone: u.telefone, documento: u.documento, comissao: u.comissao, ativo: u.ativo, permissoes: perms(u) });
 // lote/validade of a product = its lot that expires first among those in stock
 const mapProduct = (p, lots = []) => ({ id: p.id, codigo: p.codigo, nome: p.nome, grupo: p.grupo, marca: p.marca, lotes: lots, lote: lots[0]?.lote || '', validade: lots[0]?.validade || '', custo: p.custo, custoSp: p.custo_sp, precoUsd: p.preco_usd, precoBrl: p.preco_brl, estoque: { PY: p.estoque_py, SP: p.estoque_sp } });
-const mapQuote = q => ({ id: q.id, loja: q.loja, data: q.data, ts: q.ts, moeda: q.moeda, cliente: q.cliente, obs: q.obs, validade: q.validade || '', itens: q.itens, total: q.total, cotacao: q.cotacao, vendedorNome: q.vendedor_nome, status: q.status, vendaId: q.venda_id });
+const mapQuote = q => ({ id: q.id, loja: q.loja, data: q.data, ts: q.ts, moeda: q.moeda, cliente: q.cliente, obs: q.obs, validade: q.validade || '', itens: q.itens, subtotal: q.subtotal == null ? q.total : q.subtotal, fretePct: q.frete_pct, freteValor: q.frete_valor, freteiro: q.freteiro, total: q.total, cotacao: q.cotacao, vendedorNome: q.vendedor_nome, status: q.status, vendaId: q.venda_id });
 const mapTransfer = t => ({ id: t.id, data: t.data, ts: t.ts, itens: t.itens, subtotal: t.subtotal, fretePct: t.frete_pct, freteValor: t.frete_valor, freteiro: t.freteiro, total: t.total, criadoPor: t.criado_por, cancelada: t.cancelada, canceladaPor: t.cancelada_por });
 const mapSale = s => ({ id: s.id, loja: s.loja, data: s.data, ts: s.ts, moeda: s.moeda, total: s.total, cotacao: s.cotacao, pagamento: s.pagamento, cliente: s.cliente, itens: s.itens, custoUsd: s.custo_usd, vendedorId: s.vendedor_id, vendedorNome: s.vendedor_nome, cancelada: s.cancelada, canceladaPor: s.cancelada_por });
 const mapPurchase = p => ({ id: p.id, data: p.data, ts: p.ts, fornecedor: p.fornecedor, loja: p.loja, moeda: p.moeda, itens: p.itens, subtotal: p.subtotal, fretePct: p.frete_pct, freteValor: p.frete_valor, freteiro: p.freteiro, total: p.total, cotacao: p.cotacao, pagamento: p.pagamento, criadoPor: p.criado_por, cancelada: p.cancelada, canceladaPor: p.cancelada_por });
@@ -578,13 +578,17 @@ async function quoteBody(b, u) {
   }
   const dias = Math.min(365, Math.max(1, Math.round(num(b.validadeDias, 7))));
   const validade = new Date(Date.parse(todayStr() + 'T12:00:00Z') + dias * 864e5).toISOString().slice(0, 10);
-  const total = r2(itens.reduce((a, i) => a + i.qtd * i.preco, 0));
-  return { loja, moeda, itens, total, rate, validade, cliente: str(b.cliente, 120), obs: str(b.obs, 500) };
+  const subtotal = r2(itens.reduce((a, i) => a + i.qtd * i.preco, 0));
+  // freight comes as a % of the products or as a value; a typed value wins and the % is worked out from it
+  let freteValor = r2(Math.max(0, num(b.freteValor))), fretePct = Math.max(0, num(b.fretePct));
+  if (freteValor > 0) fretePct = Math.round(freteValor / subtotal * 1e4) / 100; else freteValor = r2(subtotal * fretePct / 100);
+  if (fretePct > 100) bad('Frete acima de 100% do valor dos produtos. Confira o frete.');
+  return { loja, moeda, itens, subtotal, fretePct, freteValor, freteiro: str(b.freteiro, 80), total: r2(subtotal + freteValor), rate, validade, cliente: str(b.cliente, 120), obs: str(b.obs, 500) };
 }
 app.post('/api/quotes', auth, h(async (req, res) => {
   const u = req.user, q = await quoteBody(req.body, u);
-  const { rows } = await pool.query(`insert into quotes (loja,data,ts,moeda,cliente,obs,validade,itens,total,cotacao,vendedor_id,vendedor_nome) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) returning *`,
-    [q.loja, todayStr(), Date.now(), q.moeda, q.cliente, q.obs, q.validade, JSON.stringify(q.itens), q.total, q.rate, u.id, u.nome]);
+  const { rows } = await pool.query(`insert into quotes (loja,data,ts,moeda,cliente,obs,validade,itens,total,cotacao,vendedor_id,vendedor_nome,subtotal,frete_pct,frete_valor,freteiro) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) returning *`,
+    [q.loja, todayStr(), Date.now(), q.moeda, q.cliente, q.obs, q.validade, JSON.stringify(q.itens), q.total, q.rate, u.id, u.nome, q.subtotal, q.fretePct, q.freteValor, q.freteiro]);
   bump(); res.json({ ok: true, quote: mapQuote(rows[0]) });
 }));
 // only an open quote can be edited; it keeps its number and date, and takes the current rate
@@ -594,8 +598,8 @@ app.put('/api/quotes/:id', auth, h(async (req, res) => {
   if (!canStore(req.user, old.loja)) throw new HttpError(403, 'Você não tem acesso a esta loja.');
   if (old.status !== 'aberto') bad(old.status === 'vendido' ? 'Este orçamento já virou venda e não pode ser editado.' : 'Orçamento cancelado não pode ser editado.');
   const q = await quoteBody(req.body, req.user);
-  const { rows } = await pool.query(`update quotes set loja=$1, moeda=$2, cliente=$3, obs=$4, validade=$5, itens=$6, total=$7, cotacao=$8 where id=$9 and status='aberto' returning *`,
-    [q.loja, q.moeda, q.cliente, q.obs, q.validade, JSON.stringify(q.itens), q.total, q.rate, old.id]);
+  const { rows } = await pool.query(`update quotes set loja=$1, moeda=$2, cliente=$3, obs=$4, validade=$5, itens=$6, total=$7, cotacao=$8, subtotal=$10, frete_pct=$11, frete_valor=$12, freteiro=$13 where id=$9 and status='aberto' returning *`,
+    [q.loja, q.moeda, q.cliente, q.obs, q.validade, JSON.stringify(q.itens), q.total, q.rate, old.id, q.subtotal, q.fretePct, q.freteValor, q.freteiro]);
   if (!rows[0]) bad('Este orçamento mudou de situação. Atualize a página.');
   bump(); res.json({ ok: true, quote: mapQuote(rows[0]) });
 }));

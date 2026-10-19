@@ -124,6 +124,11 @@ create table if not exists quotes (
   cancelado_em bigint
 );
 create index if not exists quotes_ts_idx on quotes (ts desc);
+-- freight on a quote: the freteiro's name and his % or value, added to the total
+alter table quotes add column if not exists subtotal numeric;
+alter table quotes add column if not exists frete_pct numeric not null default 0;
+alter table quotes add column if not exists frete_valor numeric not null default 0;
+alter table quotes add column if not exists freteiro text not null default '';
 
 create table if not exists sales (
   id serial primary key,

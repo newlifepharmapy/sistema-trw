@@ -137,6 +137,11 @@ function client() {
   assert(qd.products.find(x => x.id === tp).estoque.PY === qp.estoque.PY && qd.quotes.some(q => q.id === qt.data.quote.id), 'orçamento não mexe no estoque');
   const qe = await adm(`/api/quotes/${qt.data.quote.id}`, 'PUT', { loja: 'PY', moeda: 'USD', cliente: 'Farmácia Editada', obs: 'nova obs', validadeDias: 5, itens: [{ pid: tp, nome: 'x', qtd: 3, preco: 18 }, { nome: 'Frete', qtd: 1, preco: 6 }] });
   assert(qe.status === 200 && qe.data.quote.id === qt.data.quote.id && qe.data.quote.total === 60 && qe.data.quote.cliente === 'Farmácia Editada' && qe.data.quote.itens.length === 2 && qe.data.quote.data === qt.data.quote.data, 'orçamento em aberto editado, mantém número e data');
+  const qf = await adm(`/api/quotes/${qt.data.quote.id}`, 'PUT', { loja: 'PY', moeda: 'USD', validadeDias: 5, freteiro: 'Juan', fretePct: 10, itens: [{ pid: tp, nome: 'x', qtd: 3, preco: 18 }] });
+  assert(qf.status === 200 && +qf.data.quote.subtotal === 54 && +qf.data.quote.freteValor === 5.4 && +qf.data.quote.total === 59.4 && qf.data.quote.freteiro === 'Juan', 'frete % no orçamento soma ao total');
+  const qv = await adm(`/api/quotes/${qt.data.quote.id}`, 'PUT', { loja: 'PY', moeda: 'USD', validadeDias: 5, freteiro: 'Juan', freteValor: 27, itens: [{ pid: tp, nome: 'x', qtd: 3, preco: 18 }] });
+  assert(qv.status === 200 && +qv.data.quote.fretePct === 50 && +qv.data.quote.total === 81, 'frete em valor no orçamento');
+  assert((await adm(`/api/quotes/${qt.data.quote.id}`, 'PUT', { loja: 'PY', moeda: 'USD', fretePct: 150, itens: [{ pid: tp, nome: 'x', qtd: 3, preco: 18 }] })).status === 400, 'frete acima de 100% recusado');
   await adm(`/api/quotes/${qt.data.quote.id}`, 'PUT', { loja: 'PY', moeda: 'USD', cliente: 'Farmácia Teste', validadeDias: 10, itens: [{ pid: tp, nome: 'x', qtd: 3, preco: 18 }] });
   const qs = await adm('/api/sales', 'POST', { loja: 'PY', moeda: 'USD', pagamento: 'EFETIVO', orcamentoId: qt.data.quote.id, itens: [{ pid: tp, nome: 'x', qtd: 3, preco: 18 }] });
   qd = (await adm('/api/data')).data;
