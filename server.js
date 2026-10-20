@@ -389,26 +389,7 @@ app.post('/api/sales', auth, h(async (req, res) => {
   const out = await tx(async c => {
     const rate = await currentRate(c);
     if (!rate) bad('Defina a cotação do dólar antes de vender.');
-    const itens = []; let custoUsd = 0;
-    for (const i of itensIn) {
-      const qtd = num(i.qtd), preco = r2(num(i.preco));
-      if (!(preco > 0)) bad('Há item sem preço. Informe o preço antes de registrar.');
-      if (i.pid) {
-        const col = loja === 'PY' ? 'estoque_py' : 'estoque_sp';
-        const { rows: found } = await c.query('select id from products where id=$1 and ativo for update', [+i.pid]);
-        if (!found[0]) bad('Produto não encontrado: ' + str(i.nome));
-        const parts = await takeLots(c, +i.pid, loja, qtd, prefOf(i));
-        const { rows } = await c.query(`update products set ${col} = ${col} - $1 where id=$2 returning *`, [qtd, +i.pid]);
-        const p = rows[0];
-        // the unit cost of the moment stays with the sale, so its profit never changes afterwards
-        const cu = +(loja === 'SP' && p.custo_sp != null ? p.custo_sp : p.custo) || 0;
-        custoUsd += qtd * cu;
-        // one line per lot the units came from, so the note shows each lot and a cancel puts them back
-        for (const part of parts) itens.push({ pid: p.id, nome: p.nome, codigo: p.codigo, lote: part.lote, validade: part.validade, fornecedor: part.fornecedor, qtd: part.qtd, preco, custoUsd: cu, lt: 1 });
-      } else {
-        itens.push({ pid: null, nome: str(i.nome, 120) || 'Item avulso', codigo: '', lote: '', validade: '', qtd, preco, custoUsd: 0 });
-      }
-    }
+    const { itens, custoUsd } = await saleItems(c, loja, itensIn);
     const total = r2(itens.reduce((a, i) => a + i.qtd * i.preco, 0));
     const { rows } = await c.query(`insert into sales (loja,data,ts,moeda,total,cotacao,pagamento,cliente,itens,custo_usd,vendedor_id,vendedor_nome)
       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) returning *`,
@@ -419,16 +400,66 @@ app.post('/api/sales', auth, h(async (req, res) => {
   });
   bump(); res.json({ sale: mapSale(out) });
 }));
+// takes the items of a sale out of the stock, lot by lot; keep gives the unit cost a product already had in the sale being edited
+async function saleItems(c, loja, itensIn, keep = new Map()) {
+  const itens = []; let custoUsd = 0;
+  for (const i of itensIn) {
+    const qtd = num(i.qtd), preco = r2(num(i.preco));
+    if (!(preco > 0)) bad('Há item sem preço. Informe o preço antes de registrar.');
+    if (i.pid) {
+      const col = loja === 'PY' ? 'estoque_py' : 'estoque_sp';
+      const { rows: found } = await c.query('select id from products where id=$1 and ativo for update', [+i.pid]);
+      if (!found[0]) bad('Produto não encontrado: ' + str(i.nome));
+      const parts = await takeLots(c, +i.pid, loja, qtd, prefOf(i));
+      const { rows } = await c.query(`update products set ${col} = ${col} - $1 where id=$2 returning *`, [qtd, +i.pid]);
+      const p = rows[0];
+      // the unit cost of the moment stays with the sale, so its profit never changes afterwards
+      const k = keep.get(p.id), cu = k ? k.cu : +(loja === 'SP' && p.custo_sp != null ? p.custo_sp : p.custo) || 0;
+      custoUsd += qtd * cu;
+      // one line per lot the units came from, so the note shows each lot and a cancel puts them back
+      for (const part of parts) itens.push({ pid: p.id, nome: p.nome, codigo: p.codigo, lote: part.lote, validade: part.validade, fornecedor: part.fornecedor, qtd: part.qtd, preco, custoUsd: cu, ...(k?.ce ? { ce: 1 } : {}), lt: 1 });
+    } else {
+      itens.push({ pid: null, nome: str(i.nome, 120) || 'Item avulso', codigo: '', lote: '', validade: '', qtd, preco, custoUsd: 0 });
+    }
+  }
+  return { itens, custoUsd };
+}
+// puts the units of a sale back into the lots they came from
+async function saleBack(c, s) {
+  const col = s.loja === 'PY' ? 'estoque_py' : 'estoque_sp';
+  for (const i of s.itens) if (i.pid) {
+    const r = await c.query(`update products set ${col} = ${col} + $1 where id=$2`, [i.qtd, i.pid]);
+    // sales made before lots were tracked only carried a copy of the product's last lot
+    if (r.rowCount && i.lt) await addLot(c, i.pid, s.loja, i.lote, i.validade, i.qtd, i.fornecedor);
+  }
+}
+// editing a sale gives its old units back and takes the new ones, in one go. It keeps its number, date, store,
+// seller and the rate of its moment; products already in it keep the unit cost they had, new ones take today's
+app.put('/api/sales/:id', auth, need('cancelar'), h(async (req, res) => {
+  const b = req.body;
+  const moeda = MOEDAS.includes(b.moeda) ? b.moeda : bad('Moeda inválida.');
+  if (!PAYS.includes(b.pagamento)) bad('Escolha a forma de pagamento: PIX / Transf., USDT ou EFETIVO.');
+  const itensIn = Array.isArray(b.itens) ? b.itens.filter(i => num(i.qtd) > 0).slice(0, 200) : [];
+  if (!itensIn.length) bad('Adicione pelo menos um produto.');
+  const out = await tx(async c => {
+    const { rows: cur } = await c.query('select * from sales where id=$1 for update', [+req.params.id]);
+    const s = cur[0]; if (!s) bad('Venda não encontrada.'); if (s.cancelada) bad('Venda cancelada não pode ser editada.');
+    if (!canStore(req.user, s.loja)) throw new HttpError(403, 'Você não tem acesso a esta loja.');
+    await saleBack(c, s);
+    const keep = new Map(s.itens.filter(i => i.pid && i.custoUsd != null).map(i => [+i.pid, { cu: +i.custoUsd, ce: i.ce }]));
+    const { itens, custoUsd } = await saleItems(c, s.loja, itensIn, keep);
+    const total = r2(itens.reduce((a, i) => a + i.qtd * i.preco, 0));
+    const { rows } = await c.query(`update sales set moeda=$1, total=$2, pagamento=$3, cliente=$4, itens=$5, custo_usd=$6 where id=$7 returning *`,
+      [moeda, total, b.pagamento, str(b.cliente, 120), JSON.stringify(itens), r2(custoUsd), s.id]);
+    return rows[0];
+  });
+  bump(); res.json({ sale: mapSale(out) });
+}));
 app.post('/api/sales/:id/cancel', auth, need('cancelar'), h(async (req, res) => {
   await tx(async c => {
     const { rows } = await c.query('select * from sales where id=$1 for update', [+req.params.id]);
     const s = rows[0]; if (!s) bad('Venda não encontrada.'); if (s.cancelada) bad('Esta venda já foi cancelada.');
-    const col = s.loja === 'PY' ? 'estoque_py' : 'estoque_sp';
-    for (const i of s.itens) if (i.pid) {
-      const r = await c.query(`update products set ${col} = ${col} + $1 where id=$2`, [i.qtd, i.pid]);
-      // sales made before lots were tracked only carried a copy of the product's last lot
-      if (r.rowCount && i.lt) await addLot(c, i.pid, s.loja, i.lote, i.validade, i.qtd, i.fornecedor);
-    }
+    await saleBack(c, s);
     await c.query('update sales set cancelada=true, cancelada_por=$1, cancelada_em=$2 where id=$3', [req.user.nome, Date.now(), s.id]);
   });
   bump(); res.json({ ok: true });

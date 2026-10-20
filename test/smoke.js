@@ -211,5 +211,17 @@ function client() {
   await adm('/api/bot/config', 'POST', { ativo: false, grupo: '', intervalo: 30 });
   const form = await fetch(BASE + '/api/cotacao', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'valor=1' });
   assert(form.status === 415, 'bloqueia envio de formulário de outro site');
+  // editing a sale
+  const ep = (await adm('/api/products', 'POST', { codigo: 'EDV', nome: 'Produto edição venda', custo: 1, precoUsd: 3, estoque: { PY: 0, SP: 0 } })).data.id;
+  await adm('/api/purchases', 'POST', { loja: 'PY', moeda: 'USD', itens: [{ pid: ep, qtd: 10, custo: 1, lote: 'Z', validade: '2031-01-01' }] });
+  const vs = (await adm('/api/sales', 'POST', { loja: 'PY', moeda: 'USD', pagamento: 'EFETIVO', itens: [{ pid: ep, qtd: 4, preco: 3 }] })).data.sale;
+  await adm('/api/cotacao', 'POST', { valor: 6.1 });
+  const ve = await adm(`/api/sales/${vs.id}`, 'PUT', { moeda: 'USD', pagamento: 'USDT', cliente: 'Cliente Editado', itens: [{ pid: ep, qtd: 6, preco: 3, lotePref: { lote: 'Z', validade: '2031-01-31' } }] });
+  let epd = (await adm('/api/data')).data.products.find(x => x.id === ep);
+  assert(ve.status === 200 && ve.data.sale.id === vs.id && +ve.data.sale.total === 18 && +ve.data.sale.cotacao === +vs.cotacao && ve.data.sale.pagamento === 'USDT' && ve.data.sale.data === vs.data && epd.estoque.PY === 4 && epd.lotes[0].qtd === 4, 'venda editada corrige estoque e lote, mantém número, data e câmbio');
+  assert((await ana(`/api/sales/${vs.id}`, 'PUT', { moeda: 'USD', pagamento: 'USDT', itens: [{ pid: ep, qtd: 1, preco: 3 }] })).status === 403, 'editar venda exige a permissão de cancelar');
+  await adm(`/api/sales/${vs.id}/cancel`, 'POST', {});
+  epd = (await adm('/api/data')).data.products.find(x => x.id === ep);
+  assert(epd.estoque.PY === 10 && (await adm(`/api/sales/${vs.id}`, 'PUT', { moeda: 'USD', pagamento: 'USDT', itens: [{ pid: ep, qtd: 1, preco: 3 }] })).status === 400, 'venda editada e cancelada devolve tudo; cancelada não se edita');
   console.log('\nTodos os testes passaram.');
 })().catch(e => { console.error(e); process.exit(1); });

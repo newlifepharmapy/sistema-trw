@@ -214,6 +214,7 @@ function buildSalePane(l) {
       <div class="empty" id="ce-${l}">Digite o código ou o nome do produto e tecle Enter. Se o produto não estiver cadastrado, ele entra como item avulso e você informa o preço.</div>
     </div>
     <aside class="card checkout">
+      <div class="editbar row between" id="ed-${l}" hidden><b id="edt-${l}"></b><button class="btn small" id="edx-${l}">Cancelar edição</button></div>
       <div class="row between"><span class="lbl">Moeda da venda</span><div class="seg" id="cur-${l}"><button data-c="USD">US$</button><button data-c="BRL">R$</button></div></div>
       <div><span class="lbl">Total</span><div class="total" id="tot-${l}">—</div><div class="equiv" id="eq-${l}"></div></div>
       <div><span class="lbl">Pagamento</span><div class="pays" id="pay-${l}" style="margin-top:6px">${PAYS.map(p => `<button data-p="${p}">${p}</button>`).join('')}</div></div>
@@ -226,6 +227,7 @@ function buildSalePane(l) {
     <div class="row between"><h2>Vendas de hoje · ${LOJAS[l].nome}</h2><div class="row" id="ts-${l}"></div></div>
     <div class="tablewrap" id="today-${l}"></div>
   </div>`;
+  $('#edx-' + l).onclick = () => saleEditEnd(l);
   $('#pl-' + l).onchange = e => { const p = S.products.find(x => x.id === +e.target.value); e.target.value = ''; if (p) { addToCart(l, p); $('#q-' + l).focus(); } };
   const q = $('#q-' + l), sg = $('#sg-' + l); let hits = [], hi = 0;
   const drawSugg = () => {
@@ -280,6 +282,8 @@ function renderCart(l) {
   $$('#cur-' + l + ' button').forEach(b => b.setAttribute('aria-pressed', b.dataset.c === c.cur));
   $$('#pay-' + l + ' button').forEach(b => b.setAttribute('aria-pressed', b.dataset.p === c.pay));
   $('#ce-' + l).hidden = c.items.length > 0;
+  $('#ed-' + l).hidden = !c.editId; $('#edt-' + l).textContent = c.editId ? `Editando a venda nº ${c.editId}` : '';
+  $('#go-' + l).textContent = c.editId ? 'Salvar alterações' : 'Registrar venda';
   $('#cart-' + l).innerHTML = c.items.map((it, i) => `<tr><td>${it.codigo ? `<span class="num hint">${esc(it.codigo)}</span> ` : ''}${esc(it.nome)}${it.pid ? '' : ' <span class="pill">avulso</span>'}${lotPick(it, l, i)}</td>
     <td class="r"><input class="q" type="number" min="0" step="1" value="${it.qtd}" data-i="${i}" data-f="q" aria-label="Quantidade"></td>
     <td class="r"><input type="number" min="0" step="0.01" value="${it.preco}" data-i="${i}" data-f="p" aria-label="Preço unitário"></td>
@@ -290,8 +294,11 @@ function renderCart(l) {
 function lotPick(it, l, i) {
   const p = it.pid && S.products.find(x => x.id === it.pid); if (!p) return '';
   const L = lotsOf(p, l), free = noLotQty(p, l);
-  if (!L.length) return '';
+  if (!L.length && !it.lk) return '';
   const opts = L.map(x => ({ k: lotKey(x), t: `${lotName(x)} · ${x.qtd} un.`, x })).concat(free > 0 ? [{ k: lotKey({}), t: `Sem lote · ${free} un.`, x: { lote: '', validade: '' } }] : []);
+  // a sale being edited keeps its own lot even when none of it is left in stock
+  if (it.lk && !opts.some(o => o.k === it.lk)) { const [lote, validade] = JSON.parse(it.lk); opts.unshift({ k: it.lk, t: `${lotName({ lote, validade })} · desta venda`, x: { lote, validade } }); }
+  if (!L.length) L.push(opts[0].x);
   const cur = opts.find(o => o.k === it.lk) || null, shown = cur ? cur.x : L[0];
   const venc = shown.validade && daysTo(shown.validade) < 0 ? ' <span class="pill bad">vencido</span>' : '';
   return `<div class="hint lotpick"><select data-i="${i}" data-f="lot" aria-label="Lote"><option value="">${esc(lotName(L[0]))} (vence primeiro)</option>${opts.map(o => `<option value="${esc(o.k)}" ${o.k === it.lk ? 'selected' : ''}>${esc(o.t)}</option>`).join('')}</select>${venc}</div>`;
@@ -309,9 +316,9 @@ async function finishSale(l) {
   if (!S.rate) return toast('Defina a cotação do dólar antes de vender.', true);
   if (items.some(i => !(i.preco > 0))) return toast('Há item sem preço. Informe o preço antes de registrar.', true);
   S.saving = true; renderTotals(l);
-  const r = await act(() => api('/sales', 'POST', { loja: l, moeda: c.cur, pagamento: c.pay, cliente: $('#cli-' + l).value, orcamentoId: c.quoteId || null, itens: items.map(i => ({ pid: i.pid, nome: i.nome, qtd: i.qtd, preco: i.preco, lotePref: i.lk ? (([lote, validade]) => ({ lote, validade }))(JSON.parse(i.lk)) : null })) }));
+  const r = await act(() => api(c.editId ? '/sales/' + c.editId : '/sales', c.editId ? 'PUT' : 'POST', { loja: l, moeda: c.cur, pagamento: c.pay, cliente: $('#cli-' + l).value, orcamentoId: c.quoteId || null, itens: items.map(i => ({ pid: i.pid, nome: i.nome, qtd: i.qtd, preco: i.preco, lotePref: i.lk ? (([lote, validade]) => ({ lote, validade }))(JSON.parse(i.lk)) : null })) }));
   S.saving = false;
-  if (r) { c.items = []; c.quoteId = null; $('#cli-' + l).value = ''; renderCart(l); $('#q-' + l).focus(); askDoc(r.sale, () => $('#q-' + l).focus()); }
+  if (r) { if (c.editId) toast('Venda alterada e estoque corrigido.'); c.items = []; c.quoteId = null; c.editId = null; $('#cli-' + l).value = ''; renderCart(l); $('#q-' + l).focus(); askDoc(r.sale, () => $('#q-' + l).focus()); }
   renderTotals(l);
 }
 // one product per line: quantity, name, lot and the line total
@@ -326,7 +333,7 @@ const profitCell = s => { const o = s.moeda === 'USD' ? 'BRL' : 'USD', p = saleP
 function saleRow(s, opts = {}) {
   const itens = itemLines(s.itens, s.moeda, can('lucro') ? itemProfit(s) : null);
   const o = s.moeda === 'USD' ? 'BRL' : 'USD';
-  const actn = `<span style="white-space:nowrap"><button class="btn small" data-print="${s.id}" title="Imprimir nota">Imprimir</button> <button class="btn small" data-wa="${s.id}" title="Enviar nota pelo WhatsApp">WhatsApp</button>${can('cancelar') && !s.cancelada ? ` <button class="btn small danger" data-cancel="${s.id}">Cancelar</button>` : (s.cancelada ? ' <span class="pill bad">cancelada</span>' + (can('excluir') ? ` <button class="btn small danger" data-dels="${s.id}">Excluir</button>` : '') : '')}</span>`;
+  const actn = `<span style="white-space:nowrap"><button class="btn small" data-print="${s.id}" title="Imprimir nota">Imprimir</button> <button class="btn small" data-wa="${s.id}" title="Enviar nota pelo WhatsApp">WhatsApp</button>${can('cancelar') && can('vendas_' + s.loja) && !s.cancelada ? ` <button class="btn small" data-edits="${s.id}">Editar</button>` : ''}${can('cancelar') && !s.cancelada ? ` <button class="btn small danger" data-cancel="${s.id}">Cancelar</button>` : (s.cancelada ? ' <span class="pill bad">cancelada</span>' + (can('excluir') ? ` <button class="btn small danger" data-dels="${s.id}">Excluir</button>` : '') : '')}</span>`;
   return `<tr class="${s.cancelada ? 'cancel' : ''}">${opts.date ? `<td class="num">${fDate(s.data)}</td>` : ''}<td class="num">${fTime(s.ts)}</td>${opts.loja ? `<td><span class="pill ${s.loja.toLowerCase()}">${s.loja}</span></td>` : ''}<td style="min-width:280px;max-width:460px">${itens}${s.cliente ? `<div class="hint">${esc(s.cliente)}</div>` : ''}</td><td>${esc(s.vendedorNome)}</td><td>${esc(s.pagamento)}</td><td class="r num"><b>${fm(s.total, s.moeda)}</b><div class="hint">${fm(saleIn(s, o), o)}</div>${+s.cotacao ? `<div class="hint">câmbio ${fRate(s.cotacao)}</div>` : ''}</td>${can('lucro') ? profitCell(s) : ''}<td class="r">${actn}</td></tr>`;
 }
 const saleHead = (opts = {}) => `<thead><tr>${opts.date ? '<th>Data</th>' : ''}<th>Hora</th>${opts.loja ? '<th>Loja</th>' : ''}<th>Itens</th><th>Vendedor</th><th>Pagamento</th><th class="r">Valor</th>${can('lucro') ? '<th class="r">Lucro</th>' : ''}<th></th></tr></thead>`;
@@ -358,6 +365,8 @@ function fillPick(l) {
 }
 function renderSaleData(l) {
   fillPick(l);
+  // the sale being edited may have been cancelled meanwhile on another computer
+  const ce = S.carts[l].editId; if (ce && !S.sales.find(x => x.id === ce && !x.cancelada)) { saleEditEnd(l); toast('A venda em edição foi cancelada.', true); }
   if (S.carts[l].items.length) renderTotals(l);
   const list = S.sales.filter(s => s.loja === l && s.data === today());
   const ok = list.filter(s => !s.cancelada), cur = LOJAS[l].cur, o = cur === 'USD' ? 'BRL' : 'USD', tot = c => ok.reduce((a, s) => a + (saleIn(s, c) || 0), 0);
@@ -1058,6 +1067,22 @@ function oEditEnd() {
   S.orcEdit = null; S.orcItems = []; $('#oCli').value = ''; $('#oObs').value = ''; $('#oFreteiro').value = ''; $('#oFretePct').value = ''; $('#oFreteVal').value = ''; S.orcFreteBy = 'p'; $('#oDias').value = 7; renderOrc();
 }
 $('#oEditCancel').onclick = oEditEnd;
+// editing a sale loads it into the cart of its store, each lot on its own line; saving keeps its number, date and rate
+function saleToCart(s) {
+  if (!s || s.cancelada) return;
+  const c = S.carts[s.loja];
+  if (c.items.length && !c.editId && !confirm('O carrinho desta loja já tem produtos. Trocar pelos itens da venda?')) return;
+  c.items = [];
+  for (const i of s.itens || []) {
+    const lk = i.pid && i.lt ? lotKey(i) : '', ex = c.items.find(x => x.pid && x.pid === i.pid && x.lk === lk && x.preco === i.preco);
+    if (ex) ex.qtd += i.qtd; else c.items.push({ pid: i.pid, nome: i.nome, codigo: i.codigo || '', lk, qtd: i.qtd, preco: i.preco });
+  }
+  c.cur = s.moeda; c.pay = s.pagamento; c.editId = s.id; c.quoteId = null;
+  show(s.loja); $('#cli-' + s.loja).value = s.cliente || ''; renderCart(s.loja);
+  toast(`Venda nº ${s.id} no carrinho. Altere o que precisar e clique em Salvar alterações.`);
+}
+function saleEditEnd(l) { const c = S.carts[l]; c.editId = null; c.items = []; $('#cli-' + l).value = ''; renderCart(l); }
+document.addEventListener('click', e => { const b = e.target.closest('[data-edits]'); if (b) saleToCart(S.sales.find(x => x.id === +b.dataset.edits)); });
 function quoteToCart(q) {
   const c = S.carts[q.loja];
   if (c.items.length && !confirm('O carrinho desta loja já tem produtos. Trocar pelos itens do orçamento?')) return;
