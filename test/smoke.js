@@ -123,6 +123,11 @@ function client() {
   assert(tpd.estoque.PY === 6 && tpd.estoque.SP === 4 && tpd.custoSp === 11 && tpd.custo === 10, 'estoque passa do PY para SP e o custo em SP leva o frete');
   const tsale = await adm('/api/sales', 'POST', { loja: 'SP', moeda: 'BRL', pagamento: 'PIX / Transf.', itens: [{ pid: tp, nome: 'Transf teste', qtd: 1, preco: 100 }] });
   assert(tsale.data.sale.custoUsd === 11, 'venda em SP usa o custo com frete');
+  assert(tsale.data.sale.itens[0].custoUsd === 11, 'cada item da venda guarda o custo unitário do momento');
+  const anaSales = (await ana('/api/data')).data.sales;
+  assert(anaSales.length && anaSales.every(x => x.custoUsd == null && x.itens.every(i => i.custoUsd == null)), 'sem a permissão de lucro o custo das vendas não chega');
+  assert(String((await adm('/api/export/vendas.csv')).data).includes('Lucro US$'), 'CSV com lucro para quem pode ver');
+  assert((await adm('/api/data')).data.me.permissoes.includes('lucro'), 'supervisor vê o lucro por padrão');
   await adm(`/api/sales/${tsale.data.sale.id}/cancel`, 'POST', {});
   assert((await adm(`/api/transfers/${tr.data.transfer.id}`, 'DELETE', {})).status === 403, 'excluir transferência exige permissão');
   assert((await adm(`/api/transfers/${tr.data.transfer.id}/cancel`, 'POST', {})).status === 200, 'transferência cancelada');

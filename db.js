@@ -193,6 +193,8 @@ create table if not exists imports (
 alter table imports add column if not exists cancelada boolean not null default false;
 alter table imports add column if not exists cancelada_por text;
 alter table imports add column if not exists cancelada_em bigint;
+-- one-time data changes already applied
+create table if not exists migrations (name text primary key, ts bigint not null);
 `;
 
 async function migrate() {
@@ -207,10 +209,34 @@ async function migrate() {
         (i->>'pid')::int pid, p.loja, coalesce(i->>'lote','') lote, coalesce(i->>'validade','') validade, coalesce(nullif(i->>'fornecedor',''), p.fornecedor) f
       from purchases p, jsonb_array_elements(p.itens) i where not p.cancelada and i->>'pid' is not null order by i->>'pid', p.loja, coalesce(i->>'lote',''), coalesce(i->>'validade',''), p.ts desc) x
     where l.product_id = x.pid and l.loja = x.loja and l.lote = x.lote and l.validade = x.validade and l.fornecedor = ''`);
+  if (!(await pool.query(`select 1 from migrations where name='lucro'`)).rows.length) await migrateProfit();
   // the store forms are exactly 15 cm tall (the 6 in = 15,24 cm paper made each note creep 2,4 mm onto the perforation):
   // earlier defaults move to 15 cm once
   await pool.query(`update settings set nota = jsonb_set(coalesce(nota, '{}'::jsonb), '{papel}', '{"altura": 15, "v": 3}'::jsonb)
     where coalesce(nota->'papel'->>'v', '') in ('', '1', '2') and coalesce(nota->'papel'->>'altura', '27.94') in ('27.94', '15', '15.24', '')`);
+}
+
+// first run with profit: supervisors already saved with their own list get the new permission, and every older sale
+// gets a unit cost per item. The sale's saved total cost is split by today's product costs, so the items add up to it;
+// a sale saved without any cost takes today's costs. Those items are marked as estimated (ce).
+async function migrateProfit() {
+  await pool.query(`update users set permissoes = permissoes || '["lucro"]'::jsonb where papel='supervisor' and jsonb_typeof(permissoes)='array' and not permissoes ? 'lucro'`);
+  const { rows: prods } = await pool.query('select id, custo, custo_sp from products');
+  const cost = new Map(prods.map(p => [p.id, p]));
+  const { rows: sales } = await pool.query(`select id, loja, itens, custo_usd from sales where exists (select 1 from jsonb_array_elements(itens) i where not i ? 'custoUsd')`);
+  for (const s of sales) {
+    const now = i => { const p = cost.get(+i.pid); return p ? +(s.loja === 'SP' && p.custo_sp != null ? p.custo_sp : p.custo) || 0 : 0; };
+    const itens = s.itens.map(i => ({ ...i })), saved = +s.custo_usd || 0;
+    const w = itens.reduce((a, i) => a + (i.pid ? i.qtd * now(i) : 0), 0), val = itens.reduce((a, i) => a + (i.pid ? i.qtd * i.preco : 0), 0);
+    for (const i of itens) {
+      if (!i.pid) { i.custoUsd = 0; continue; }
+      i.custoUsd = Math.round((saved > 0 ? (w > 0 ? now(i) * saved / w : (val ? i.preco * saved / val : 0)) : now(i)) * 1e4) / 1e4;
+      i.ce = 1;
+    }
+    const total = saved > 0 ? saved : Math.round(w * 100) / 100;
+    await pool.query('update sales set itens=$1, custo_usd=$2 where id=$3', [JSON.stringify(itens), total, s.id]);
+  }
+  await pool.query(`insert into migrations (name, ts) values ('lucro', $1) on conflict do nothing`, [Date.now()]);
 }
 
 // first run with lots: rebuild them from the purchases still in force, then trim each product down to

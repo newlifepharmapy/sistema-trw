@@ -82,7 +82,7 @@ async function loadUser(req, res, next) {
 }
 const auth = h(loadUser);
 // permissions: each user has a list chosen by whoever manages users; users saved before this existed get the defaults of their role
-const PERMS = ['dash', 'vendas_PY', 'vendas_SP', 'cancelar', 'excluir', 'exportar', 'produtos', 'compras', 'importacoes', 'cambio', 'usuarios'];
+const PERMS = ['dash', 'vendas_PY', 'vendas_SP', 'lucro', 'cancelar', 'excluir', 'exportar', 'produtos', 'compras', 'importacoes', 'cambio', 'usuarios'];
 // permanent deletion is never part of a default: a supervisor has to switch it on for the person
 function defaultPerms(papel, loja) {
   if (papel === 'supervisor') return PERMS.filter(p => p !== 'excluir');
@@ -194,7 +194,8 @@ app.get('/api/data', auth, h(async (req, res) => {
     settings: st ? { cotacao: st.cotacao, atualizadoEm: st.atualizado_em, atualizadoPor: st.atualizado_por, spread: st.spread, auto: st.auto, binance: st.binance, binanceEm: st.binance_em, binanceErro: st.binance_erro, nota: st.nota } : null,
     historico: hist.rows.map(r => ({ d: r.dia, v: r.valor, por: r.por, ts: r.ts })),
     products: products.rows.map(p => mapProduct(p, lotRows.rows.filter(l => l.product_id === p.id).map(l => ({ loja: l.loja, lote: l.lote, validade: l.validade, qtd: +l.qtd, fornecedor: l.fornecedor || '' })))),
-    sales: sales.rows.map(mapSale),
+    // costs and profit only reach those allowed to see them
+    sales: sales.rows.map(mapSale).map(x => has(u, 'lucro') ? x : { ...x, custoUsd: null, itens: (x.itens || []).map(({ custoUsd, ce, ...i }) => i) }),
     purchases: [], imports: [], users: [],
   };
   const none = Promise.resolve({ rows: [] });
@@ -399,11 +400,13 @@ app.post('/api/sales', auth, h(async (req, res) => {
         const parts = await takeLots(c, +i.pid, loja, qtd, prefOf(i));
         const { rows } = await c.query(`update products set ${col} = ${col} - $1 where id=$2 returning *`, [qtd, +i.pid]);
         const p = rows[0];
-        custoUsd += qtd * (loja === 'SP' && p.custo_sp != null ? p.custo_sp : p.custo);
+        // the unit cost of the moment stays with the sale, so its profit never changes afterwards
+        const cu = +(loja === 'SP' && p.custo_sp != null ? p.custo_sp : p.custo) || 0;
+        custoUsd += qtd * cu;
         // one line per lot the units came from, so the note shows each lot and a cancel puts them back
-        for (const part of parts) itens.push({ pid: p.id, nome: p.nome, codigo: p.codigo, lote: part.lote, validade: part.validade, fornecedor: part.fornecedor, qtd: part.qtd, preco, lt: 1 });
+        for (const part of parts) itens.push({ pid: p.id, nome: p.nome, codigo: p.codigo, lote: part.lote, validade: part.validade, fornecedor: part.fornecedor, qtd: part.qtd, preco, custoUsd: cu, lt: 1 });
       } else {
-        itens.push({ pid: null, nome: str(i.nome, 120) || 'Item avulso', codigo: '', lote: '', validade: '', qtd, preco });
+        itens.push({ pid: null, nome: str(i.nome, 120) || 'Item avulso', codigo: '', lote: '', validade: '', qtd, preco, custoUsd: 0 });
       }
     }
     const total = r2(itens.reduce((a, i) => a + i.qtd * i.preco, 0));
@@ -502,13 +505,15 @@ app.get('/api/export/vendas.csv', auth, need('exportar'), h(async (req, res) => 
   if (isDate(de)) { p.push(de); w.push(`data >= $${p.length}`); }
   if (isDate(ate)) { p.push(ate); w.push(`data <= $${p.length}`); }
   const { rows } = await pool.query(`select * from sales ${w.length ? 'where ' + w.join(' and ') : ''} order by ts desc`, p);
-  const head = ['Data', 'Hora', 'Loja', 'Vendedor', 'Cliente', 'Itens', 'Pagamento', 'Moeda', 'Valor', 'Valor US$', 'Valor R$', 'Câmbio da venda', 'Cancelada'];
+  const lucro = has(req.user, 'lucro');
+  const head = ['Data', 'Hora', 'Loja', 'Vendedor', 'Cliente', 'Itens', 'Pagamento', 'Moeda', 'Valor', 'Valor US$', 'Valor R$', 'Câmbio da venda', ...(lucro ? ['Custo US$', 'Lucro US$', 'Lucro R$', 'Margem %'] : []), 'Cancelada'];
   const lines = [head.map(csvq).join(';')].concat(rows.map(s => {
     // values use the rate saved with the sale, so they never change afterwards
     const rate = +s.cotacao, usd = s.moeda === 'USD' ? s.total : (rate ? s.total / rate : 0), brl = s.moeda === 'BRL' ? s.total : usd * rate;
     return [s.data.split('-').reverse().join('/'), new Date(+s.ts).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: process.env.TZ_LOJA || 'America/Asuncion' }),
       s.loja === 'PY' ? 'Paraguay' : 'São Paulo', s.vendedor_nome, s.cliente, s.itens.map(i => `${i.qtd}x ${i.nome}`).join(', '), s.pagamento, s.moeda,
-      br2(s.total), br2(usd), br2(brl), rate.toLocaleString('pt-BR', { maximumFractionDigits: 4 }), s.cancelada ? 'sim' : ''].map(csvq).join(';');
+      br2(s.total), br2(usd), br2(brl), rate.toLocaleString('pt-BR', { maximumFractionDigits: 4 }),
+      ...(lucro ? [br2(s.custo_usd), br2(usd - s.custo_usd), br2((usd - s.custo_usd) * rate), usd ? br2((usd - s.custo_usd) / usd * 100) : ''] : []), s.cancelada ? 'sim' : ''].map(csvq).join(';');
   }));
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="vendas_${todayStr()}.csv"`);

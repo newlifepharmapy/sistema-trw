@@ -40,11 +40,19 @@ const fTime = ts => ts ? new Date(+ts).toLocaleTimeString('pt-BR', { hour: '2-di
 // a sale keeps the dollar rate of the moment it was made: later rate changes do not alter its value
 const saleIn = (s, cur) => cur === s.moeda ? +s.total : +s.cotacao ? (cur === 'USD' ? s.total / s.cotacao : s.total * s.cotacao) : conv(s.total, s.moeda, cur);
 const saleUsd = s => saleIn(s, 'USD');
+// profit of a sale: its price minus the cost saved with it, both at the sale's own rate; never printed on a note
+const atRate = (usd, s, cur) => cur === 'USD' ? usd : usd * (+s.cotacao || S.rate || 0);
+const saleProfit = (s, cur) => (saleIn(s, cur) || 0) - atRate(+s.custoUsd || 0, s, cur);
+const marg = (p, t) => t ? (p / t * 100).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + '%' : '—';
+// today's unit cost of a product in a store, for what is not sold yet (cart and quotes)
+const costNow = (pid, loja) => { const p = pid && S.products.find(x => x.id === pid); return p ? +(loja === 'SP' && p.custoSp != null ? p.custoSp : p.custo) || 0 : 0; };
+const expProfit = (itens, loja, cur) => { const v = itens.reduce((a, i) => a + i.qtd * i.preco, 0), c = itens.reduce((a, i) => a + i.qtd * costNow(i.pid, loja), 0); const p = v - (cur === 'USD' ? c : c * (S.rate || 0)); return { p, v, txt: `lucro previsto ${fm(p, cur)} (${marg(p, v)})` }; };
 const fRate = v => 'R$ ' + (+v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
 const PERMS = [
   ['dash', 'Dashboard', 'Ver o painel e as vendas de todas as lojas'],
   ['vendas_PY', 'Vender no Paraguay', 'Aba Vendas Paraguay'],
   ['vendas_SP', 'Vender em São Paulo', 'Aba Vendas São Paulo'],
+  ['lucro', 'Ver lucro e custos', 'Custo, lucro e margem nas vendas, no histórico, nos orçamentos e no dashboard'],
   ['cancelar', 'Cancelar operações', 'Vendas, compras e importações: desfaz no estoque e fica no histórico'],
   ['excluir', 'Excluir definitivamente', 'Apaga de vez o que foi cancelado, produtos, cotações e usuários inativos'],
   ['exportar', 'Exportar vendas', 'Baixar o histórico em CSV'],
@@ -291,7 +299,7 @@ function lotPick(it, l, i) {
 function renderTotals(l) {
   const c = S.carts[l], tot = c.items.reduce((s, i) => s + i.qtd * i.preco, 0), o = c.cur === 'USD' ? 'BRL' : 'USD';
   $('#tot-' + l).textContent = fm(tot, c.cur);
-  $('#eq-' + l).textContent = S.rate ? '≈ ' + fm(conv(tot, c.cur, o), o) : 'Cotação não definida';
+  $('#eq-' + l).innerHTML = esc(S.rate ? '≈ ' + fm(conv(tot, c.cur, o), o) : 'Cotação não definida') + (can('lucro') && c.items.length ? '<br>' + esc(expProfit(c.items, l, c.cur).txt) : '');
   $('#go-' + l).disabled = !c.items.length || !S.rate || S.saving;
 }
 async function finishSale(l) {
@@ -307,16 +315,21 @@ async function finishSale(l) {
   renderTotals(l);
 }
 // one product per line: quantity, name, lot and the line total
-function itemLines(itens, cur) {
-  return `<div class="itlist">${(itens || []).map(i => `<div><span class="num">${i.qtd}×</span> ${esc(i.nome)}${i.lote ? ` <span class="hint">lote ${esc(i.lote)}</span>` : ''}${cur && i.preco != null ? `<span class="num hint itv">${fm(i.qtd * i.preco, cur)}</span>` : ''}</div>`).join('')}</div>`;
+function itemLines(itens, cur, more) {
+  return `<div class="itlist">${(itens || []).map(i => `<div class="it"><div><span class="num">${i.qtd}×</span> ${esc(i.nome)}${i.lote ? ` <span class="hint">lote ${esc(i.lote)}</span>` : ''}${cur && i.preco != null ? `<span class="num hint itv">${fm(i.qtd * i.preco, cur)}</span>` : ''}</div>${more ? more(i) : ''}</div>`).join('')}</div>`;
 }
+// under each sold item: unit cost and price, and the profit of the line with its margin
+const itemProfit = s => i => { if (i.custoUsd == null) return ''; const cu = atRate(+i.custoUsd, s, s.moeda), v = i.qtd * i.preco, p = v - i.qtd * cu;
+  return `<div class="itp num">custo ${fm(cu, s.moeda)} · venda ${fm(i.preco, s.moeda)} · <span class="${p < 0 ? 'neg' : 'pos'}">lucro ${fm(p, s.moeda)} (${marg(p, v)})</span>${i.ce ? ' · custo estimado' : ''}</div>`; };
+const profitCell = s => { const o = s.moeda === 'USD' ? 'BRL' : 'USD', p = saleProfit(s, s.moeda);
+  return `<td class="r num"><b class="${p < 0 ? 'neg' : 'pos'}">${fm(p, s.moeda)}</b><div class="hint">${fm(saleProfit(s, o), o)}</div><div class="hint">margem ${marg(p, +s.total)}</div></td>`; };
 function saleRow(s, opts = {}) {
-  const itens = itemLines(s.itens, s.moeda);
+  const itens = itemLines(s.itens, s.moeda, can('lucro') ? itemProfit(s) : null);
   const o = s.moeda === 'USD' ? 'BRL' : 'USD';
   const actn = `<span style="white-space:nowrap"><button class="btn small" data-print="${s.id}" title="Imprimir nota">Imprimir</button> <button class="btn small" data-wa="${s.id}" title="Enviar nota pelo WhatsApp">WhatsApp</button>${can('cancelar') && !s.cancelada ? ` <button class="btn small danger" data-cancel="${s.id}">Cancelar</button>` : (s.cancelada ? ' <span class="pill bad">cancelada</span>' + (can('excluir') ? ` <button class="btn small danger" data-dels="${s.id}">Excluir</button>` : '') : '')}</span>`;
-  return `<tr class="${s.cancelada ? 'cancel' : ''}">${opts.date ? `<td class="num">${fDate(s.data)}</td>` : ''}<td class="num">${fTime(s.ts)}</td>${opts.loja ? `<td><span class="pill ${s.loja.toLowerCase()}">${s.loja}</span></td>` : ''}<td style="min-width:280px;max-width:460px">${itens}${s.cliente ? `<div class="hint">${esc(s.cliente)}</div>` : ''}</td><td>${esc(s.vendedorNome)}</td><td>${esc(s.pagamento)}</td><td class="r num"><b>${fm(s.total, s.moeda)}</b><div class="hint">${fm(saleIn(s, o), o)}</div>${+s.cotacao ? `<div class="hint">câmbio ${fRate(s.cotacao)}</div>` : ''}</td><td class="r">${actn}</td></tr>`;
+  return `<tr class="${s.cancelada ? 'cancel' : ''}">${opts.date ? `<td class="num">${fDate(s.data)}</td>` : ''}<td class="num">${fTime(s.ts)}</td>${opts.loja ? `<td><span class="pill ${s.loja.toLowerCase()}">${s.loja}</span></td>` : ''}<td style="min-width:280px;max-width:460px">${itens}${s.cliente ? `<div class="hint">${esc(s.cliente)}</div>` : ''}</td><td>${esc(s.vendedorNome)}</td><td>${esc(s.pagamento)}</td><td class="r num"><b>${fm(s.total, s.moeda)}</b><div class="hint">${fm(saleIn(s, o), o)}</div>${+s.cotacao ? `<div class="hint">câmbio ${fRate(s.cotacao)}</div>` : ''}</td>${can('lucro') ? profitCell(s) : ''}<td class="r">${actn}</td></tr>`;
 }
-const saleHead = (opts = {}) => `<thead><tr>${opts.date ? '<th>Data</th>' : ''}<th>Hora</th>${opts.loja ? '<th>Loja</th>' : ''}<th>Itens</th><th>Vendedor</th><th>Pagamento</th><th class="r">Valor</th><th></th></tr></thead>`;
+const saleHead = (opts = {}) => `<thead><tr>${opts.date ? '<th>Data</th>' : ''}<th>Hora</th>${opts.loja ? '<th>Loja</th>' : ''}<th>Itens</th><th>Vendedor</th><th>Pagamento</th><th class="r">Valor</th>${can('lucro') ? '<th class="r">Lucro</th>' : ''}<th></th></tr></thead>`;
 document.addEventListener('click', async e => {
   const b = e.target.closest('[data-cancel]'); if (!b || !can('cancelar')) return;
   if (!armed(b, 'Confirmar', 'Cancelar')) return;
@@ -348,7 +361,7 @@ function renderSaleData(l) {
   if (S.carts[l].items.length) renderTotals(l);
   const list = S.sales.filter(s => s.loja === l && s.data === today());
   const ok = list.filter(s => !s.cancelada), cur = LOJAS[l].cur, o = cur === 'USD' ? 'BRL' : 'USD', tot = c => ok.reduce((a, s) => a + (saleIn(s, c) || 0), 0);
-  $('#ts-' + l).innerHTML = `<span class="pill">${ok.length} vendas</span><span class="pill ${l.toLowerCase()} num">${fm(tot(cur), cur)}</span><span class="pill num">${fm(tot(o), o)}</span>`;
+  $('#ts-' + l).innerHTML = `<span class="pill">${ok.length} vendas</span><span class="pill ${l.toLowerCase()} num">${fm(tot(cur), cur)}</span><span class="pill num">${fm(tot(o), o)}</span>${can('lucro') ? `<span class="pill num">lucro ${fm(ok.reduce((a, s) => a + saleProfit(s, cur), 0), cur)}</span>` : ''}`;
   $('#today-' + l).innerHTML = list.length ? `<table>${saleHead()}<tbody>${list.map(s => saleRow(s)).join('')}</tbody></table>` : '<div class="empty">Nenhuma venda hoje nesta loja ainda.</div>';
 }
 
@@ -370,7 +383,7 @@ function renderDash() {
   const D = S.disp, alt = D === 'USD' ? 'BRL' : 'USD', fmD = v => fm(v, D);
   const sum = (arr, c = D) => arr.reduce((a, s) => a + (saleIn(s, c) || 0), 0);
   const py = sales.filter(s => s.loja === 'PY'), sp = sales.filter(s => s.loja === 'SP');
-  const tot = sum(sales), cost = sales.reduce((a, s) => a + (+s.custoUsd || 0), 0), profit = tot - (conv(cost, 'USD', D) || 0);
+  const tot = sum(sales), profit = sales.reduce((a, s) => a + saleProfit(s, D), 0);
   const buys = S.purchases.filter(p => !p.cancelada && p.data >= from && p.data <= t), buyUsd = buys.reduce((a, p) => a + (toUsd(p.total, p.moeda) || 0), 0);
   const openImp = S.imports.filter(i => !i.recebida && !i.cancelada);
   const items = sales.reduce((a, s) => a + (s.itens || []).reduce((b, i) => b + i.qtd, 0), 0);
@@ -379,7 +392,7 @@ function renderDash() {
     k('', 'Faturamento total', fmD(tot), fm(sum(sales, alt), alt)) +
     k('py', 'Paraguay', fmD(sum(py)), `${py.length} vendas · ${tot ? Math.round(sum(py) / tot * 100) : 0}%`) +
     k('sp', 'São Paulo', fmD(sum(sp)), `${sp.length} vendas · ${tot ? Math.round(sum(sp) / tot * 100) : 0}%`) +
-    k('', 'Lucro bruto estimado', fmD(profit), tot ? `margem ${Math.round(profit / tot * 100)}%` : 'margem —') +
+    (can('lucro') ? k('', 'Lucro bruto', fmD(profit), `margem ${marg(profit, tot)} · ${fm(sales.reduce((a, s) => a + saleProfit(s, alt), 0), alt)}`) : '') +
     k('', 'Ticket médio', fmD(sales.length ? tot / sales.length : 0), `${sales.length} vendas · ${items} itens`) +
     k('', 'Compras no período', fd(buyUsd), `${buys.length} entradas`) +
     k('py', 'Importações em andamento', fd(openImp.reduce((a, i) => a + impCalc(i).total, 0)), `${openImp.length} processos`);
@@ -428,7 +441,8 @@ function renderHist() {
   if (!$('#hFrom').value) { $('#hFrom').value = dayAdd(today(), -29); $('#hTo').value = today(); }
   const rows = histRows(), ok = rows.filter(s => !s.cancelada), tot = c => ok.reduce((a, s) => a + (saleIn(s, c) || 0), 0);
   $('#csvBtn').href = `/api/export/vendas.csv?loja=${encodeURIComponent($('#hLoja').value)}&de=${$('#hFrom').value}&ate=${$('#hTo').value}`;
-  $('#hKpis').innerHTML = `<div class="kpi"><span class="lbl">Vendas no filtro</span><span class="v">${ok.length}</span><span class="s">${rows.length - ok.length} canceladas</span></div><div class="kpi"><span class="lbl">Total em dólar</span><span class="v">${fm(tot('USD'), 'USD')}</span><span class="s">câmbio do dia de cada venda</span></div><div class="kpi"><span class="lbl">Total em real</span><span class="v">${fm(tot('BRL'), 'BRL')}</span><span class="s">câmbio do dia de cada venda</span></div>`;
+  $('#hKpis').innerHTML = `<div class="kpi"><span class="lbl">Vendas no filtro</span><span class="v">${ok.length}</span><span class="s">${rows.length - ok.length} canceladas</span></div><div class="kpi"><span class="lbl">Total em dólar</span><span class="v">${fm(tot('USD'), 'USD')}</span><span class="s">câmbio do dia de cada venda</span></div><div class="kpi"><span class="lbl">Total em real</span><span class="v">${fm(tot('BRL'), 'BRL')}</span><span class="s">câmbio do dia de cada venda</span></div>${can('lucro') ? (() => { const pu = ok.reduce((a, s) => a + saleProfit(s, 'USD'), 0), pb = ok.reduce((a, s) => a + saleProfit(s, 'BRL'), 0);
+    return `<div class="kpi"><span class="lbl">Lucro no filtro</span><span class="v">${fm(pu, 'USD')}</span><span class="s">${fm(pb, 'BRL')} · margem ${marg(pu, tot('USD'))}</span></div>`; })() : ''}`;
   $('#hTable').innerHTML = rows.length ? `<table>${saleHead({ date: 1, loja: 1 })}<tbody>${rows.slice(0, 500).map(s => saleRow(s, { date: 1, loja: 1 })).join('')}</tbody></table>${rows.length > 500 ? '<div class="hint" style="padding:8px">Mostrando as 500 mais recentes. Use o CSV para ver todas.</div>' : ''}` : '<div class="empty">Nenhuma venda neste filtro.</div>';
 }
 
@@ -963,7 +977,7 @@ function renderUsers() {
   $('#userList').innerHTML = `<table><thead><tr><th>Nome</th><th>Usuário</th><th>Função</th><th>Permissões</th><th>Telefone</th><th class="r">Vendas no mês</th><th>Situação</th><th></th></tr></thead><tbody>${S.users.map(o => {
     const mine = ms.filter(x => x.vendedorId === o.id), v = mine.reduce((a, x) => a + (saleUsd(x) || 0), 0);
     return `<tr><td>${esc(o.nome)}${o.id === S.me.id ? ' <span class="pill">você</span>' : ''}</td><td class="num">${esc(o.login)}</td><td>${o.papel === 'supervisor' ? 'Supervisor' : 'Vendedor'}</td><td>${permTags(o)}</td><td class="num">${esc(o.telefone || '—')}</td>
-    <td class="r num">${fm(v, 'USD')}<div class="hint">${mine.length} vendas</div></td>
+    <td class="r num">${fm(v, 'USD')}<div class="hint">${mine.length} vendas</div>${can('lucro') ? `<div class="hint">lucro ${fm(mine.reduce((a, x) => a + saleProfit(x, 'USD'), 0), 'USD')}</div>` : ''}</td>
     <td>${o.ativo === false ? '<span class="pill bad">inativo</span>' : '<span class="pill">ativo</span>'}</td><td class="r" style="white-space:nowrap"><button class="btn small" data-editu="${o.id}">Editar</button>${o.id !== S.me.id ? ` <button class="btn small" data-toggleu="${o.id}">${o.ativo === false ? 'Reativar' : 'Desativar'}</button>${o.ativo === false && can('excluir') ? ` <button class="btn small danger" data-delu="${o.id}">Excluir</button>` : ''}` : ''}</td></tr>`;
   }).join('')}</tbody></table>`;
 }
@@ -1006,7 +1020,7 @@ function oFrete(sub) {
 function oTotals() {
   const cur = $('#oCur').value, o = cur === 'USD' ? 'BRL' : 'USD', sub = S.orcItems.reduce((a, i) => a + i.qtd * i.preco, 0), fr = oFrete(sub), t = sub + fr;
   $('#oTotal').textContent = S.orcItems.length ? fm(t, cur) : '—';
-  $('#oTotalSub').textContent = S.orcItems.length ? [fr ? `produtos ${fm(sub, cur)} + frete ${fm(fr, cur)}` : '', S.rate ? '≈ ' + fm(conv(t, cur, o), o) : ''].filter(Boolean).join(' · ') : '';
+  $('#oTotalSub').textContent = S.orcItems.length ? [fr ? `produtos ${fm(sub, cur)} + frete ${fm(fr, cur)}` : '', S.rate ? '≈ ' + fm(conv(t, cur, o), o) : '', can('lucro') ? expProfit(S.orcItems, $('#oLoja').value, cur).txt : ''].filter(Boolean).join(' · ') : '';
 }
 $('#oFretePct').oninput = () => { S.orcFreteBy = 'p'; oTotals(); };
 $('#oFreteVal').oninput = () => { S.orcFreteBy = 'v'; oTotals(); };
@@ -1081,8 +1095,8 @@ function renderOrc() {
   oTotals();
   const f = $('#oFilter').value, L = S.quotes.filter(q => f === 'all' || q.status === f).slice(0, 300);
   const stPill = q => q.status === 'vendido' ? '<span class="pill ok">virou venda</span>' : q.status === 'cancelado' ? '<span class="pill bad">cancelado</span>' : qExpired(q) ? '<span class="pill warn">vencido</span>' : '<span class="pill">em aberto</span>';
-  $('#orcList').innerHTML = L.length ? `<table><thead><tr><th>Nº</th><th>Data</th><th>Loja</th><th>Cliente</th><th>Itens</th><th>Válido até</th><th>Situação</th><th class="r">Total</th><th></th></tr></thead><tbody>${L.map(q => { const oc = q.moeda === 'USD' ? 'BRL' : 'USD';
-    return `<tr class="${q.status === 'cancelado' ? 'cancel' : ''}"><td class="num">${String(q.id).padStart(6, '0')}</td><td class="num">${fDate(q.data)}</td><td><span class="pill ${q.loja.toLowerCase()}">${q.loja}</span></td><td>${esc(q.cliente || '—')}</td><td>${itemLines(q.itens, q.moeda)}</td><td class="num">${q.validade ? fDate(q.validade) : '—'}</td><td>${stPill(q)}</td><td class="r num"><b>${fm(q.total, q.moeda)}</b><div class="hint">${fm(saleIn(q, oc), oc)}</div>${+q.freteValor ? `<div class="hint">frete ${fm(+q.freteValor, q.moeda)}${q.freteiro ? ' · ' + esc(q.freteiro) : ''}</div>` : ''}</td>
+  $('#orcList').innerHTML = L.length ? `<table><thead><tr><th>Nº</th><th>Data</th><th>Loja</th><th>Cliente</th><th>Itens</th><th>Válido até</th><th>Situação</th><th class="r">Total</th>${can('lucro') ? '<th class="r">Lucro previsto</th>' : ''}<th></th></tr></thead><tbody>${L.map(q => { const oc = q.moeda === 'USD' ? 'BRL' : 'USD';
+    return `<tr class="${q.status === 'cancelado' ? 'cancel' : ''}"><td class="num">${String(q.id).padStart(6, '0')}</td><td class="num">${fDate(q.data)}</td><td><span class="pill ${q.loja.toLowerCase()}">${q.loja}</span></td><td>${esc(q.cliente || '—')}</td><td>${itemLines(q.itens, q.moeda)}</td><td class="num">${q.validade ? fDate(q.validade) : '—'}</td><td>${stPill(q)}</td><td class="r num"><b>${fm(q.total, q.moeda)}</b><div class="hint">${fm(saleIn(q, oc), oc)}</div>${+q.freteValor ? `<div class="hint">frete ${fm(+q.freteValor, q.moeda)}${q.freteiro ? ' · ' + esc(q.freteiro) : ''}</div>` : ''}</td>${can('lucro') ? (() => { const e = expProfit(q.itens || [], q.loja, q.moeda); return `<td class="r num"><b class="${e.p < 0 ? 'neg' : 'pos'}">${fm(e.p, q.moeda)}</b><div class="hint">margem ${marg(e.p, e.v)}</div><div class="hint">custo de hoje</div></td>`; })() : ''}
       <td class="r" style="white-space:nowrap"><button class="btn small" data-oprint="${q.id}">Imprimir</button> <button class="btn small" data-owa="${q.id}">WhatsApp</button>${q.status === 'aberto' ? ` <button class="btn small" data-oedit="${q.id}">Editar</button> <button class="btn small primary" data-osell="${q.id}">Vender</button> <button class="btn small danger" data-ocancel="${q.id}">Cancelar</button>` : ''}${q.status === 'cancelado' && can('excluir') ? ` <button class="btn small danger" data-odel="${q.id}">Excluir</button>` : ''}</td></tr>`; }).join('')}</tbody></table>`
     : `<div class="empty">${S.quotes.length ? 'Nenhum orçamento neste filtro.' : 'Nenhum orçamento ainda.'}</div>`;
 }
