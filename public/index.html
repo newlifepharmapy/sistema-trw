@@ -148,19 +148,23 @@
         <div class="card">
           <div class="fields">
             <label class="field"><span class="lbl">Título</span><input type="text" id="tTitle" placeholder="TABELA DE PREÇOS"></label>
-            <label class="field"><span class="lbl">Produtos</span><select id="tStock"><option value="PY">Com estoque no Paraguay</option><option value="SP">Com estoque em São Paulo</option><option value="any">Com estoque em qualquer loja</option><option value="all">Todos os produtos</option></select></label>
+            <label class="field"><span class="lbl">Tabela</span><select id="tStock"><option value="PY">Paraguay</option><option value="SP">São Paulo</option><option value="any">Paraguay e São Paulo</option><option value="all">Todos os produtos</option></select></label>
+            <label class="field"><span class="lbl">Grupo</span><select id="tGrupo"></select></label>
+            <label class="field"><span class="lbl">Marca</span><select id="tMarca"></select></label>
+            <label class="field"><span class="lbl">Moeda</span><select id="tCur"><option value="both">Dólar e reais</option><option value="USD">Só em dólar (US$)</option><option value="BRL">Só em reais (R$)</option></select></label>
             <label class="field"><span class="lbl">Filtrar</span><input type="search" id="tFilter" placeholder="Nome, código ou lote"></label>
+            <div class="field end"><button class="btn primary" id="tLoad">Carregar lista</button></div>
           </div>
           <div class="row wrap" style="gap:18px;margin-top:8px">
             <label class="check"><input type="checkbox" id="tCode"> Mostrar código</label>
             <label class="check"><input type="checkbox" id="tVal"> Mostrar validade</label>
             <label class="check"><input type="checkbox" id="tQty"> Mostrar quantidade em estoque</label>
           </div>
-          <p class="hint">Os valores seguem a cotação atual e se atualizam sozinhos. Copie e cole no WhatsApp: os asteriscos viram negrito.</p>
+          <p class="hint">Escolha a tabela, o grupo e a moeda e clique em Carregar lista. Paraguay e São Paulo listam os produtos com estoque na loja. Depois de carregada, a lista segue a cotação atual. Copie e cole no WhatsApp: os asteriscos viram negrito.</p>
         </div>
         <div class="grid2">
-          <div class="card"><div class="row between"><h2>Tabela em dólar (US$)</h2><button class="btn primary" data-copy="tUsd">Copiar</button></div><textarea id="tUsd" class="wa-text" readonly></textarea></div>
-          <div class="card"><div class="row between"><h2>Tabela em reais (R$)</h2><button class="btn primary" data-copy="tBrl">Copiar</button></div><textarea id="tBrl" class="wa-text" readonly></textarea></div>
+          <div class="card" id="tCardUsd"><div class="row between"><h2>Tabela em dólar (US$)</h2><button class="btn primary" data-copy="tUsd">Copiar</button></div><textarea id="tUsd" class="wa-text" readonly></textarea></div>
+          <div class="card" id="tCardBrl"><div class="row between"><h2>Tabela em reais (R$)</h2><button class="btn primary" data-copy="tBrl">Copiar</button></div><textarea id="tBrl" class="wa-text" readonly></textarea></div>
         </div>
       </section>
 

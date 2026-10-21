@@ -624,17 +624,22 @@ function renderStock() {
 
 /* ---------- price list for WhatsApp ---------- */
 // *text* is bold and _text_ italic on WhatsApp
-const TAB_KEYS = ['tTitle', 'tStock', 'tCode', 'tVal', 'tQty'];
+const TAB_KEYS = ['tTitle', 'tStock', 'tCur', 'tCode', 'tVal', 'tQty'];
 TAB_KEYS.forEach(id => { const el = $('#' + id), v = ls.get('trw_' + id); if (v != null) { if (el.type === 'checkbox') el.checked = v === '1'; else el.value = v; }
   el.addEventListener(el.type === 'checkbox' || el.tagName === 'SELECT' ? 'change' : 'input', () => { ls.set('trw_' + id, el.type === 'checkbox' ? (el.checked ? '1' : '0') : el.value); renderTab(); }); });
 $('#tFilter').oninput = renderTab;
+// the list is built when Carregar lista is clicked; changing which table or currency asks for a new load
+['tStock', 'tGrupo', 'tMarca', 'tCur'].forEach(id => $('#' + id).addEventListener('change', () => { S.tabLoaded = false; renderTab(); }));
+$('#tLoad').onclick = () => { S.tabLoaded = true; renderTab(); toast('Lista carregada.'); };
+const TAB_NAMES = { PY: 'Paraguay', SP: 'São Paulo', any: 'Paraguay e São Paulo', all: '' };
 function tabText(cur) {
   const st = $('#tStock').value, f = $('#tFilter').value.trim().toLowerCase();
   const qty = p => st === 'PY' || st === 'SP' ? stockOf(p, st) : stockOf(p, 'PY') + stockOf(p, 'SP');
-  const L = S.products.filter(p => matchP(p, f) && (st === 'all' || (st === 'any' ? stockOf(p, 'PY') > 0 || stockOf(p, 'SP') > 0 : stockOf(p, st) > 0)) && priceFor(p, cur) > 0)
+  const L = S.products.filter(p => matchP(p, f) && gmMatch(p, $('#tGrupo'), $('#tMarca')) && (st === 'all' || (st === 'any' ? stockOf(p, 'PY') > 0 || stockOf(p, 'SP') > 0 : stockOf(p, st) > 0)) && priceFor(p, cur) > 0)
     .sort((a, b) => gOf(a).localeCompare(gOf(b), 'pt-BR') || a.nome.localeCompare(b.nome));
   const now = new Date(), title = ($('#tTitle').value.trim() || 'TABELA DE PREÇOS').toUpperCase();
-  const out = [`*${title} · ${cur === 'USD' ? 'US$' : 'R$'}*`, `_Atualizada em ${now.toLocaleDateString('pt-BR')} às ${fTime(now)}${S.rate ? ' · Câmbio R$ ' + nNum(S.rate, 4).replace(/0{1,2}$/, '') : ''}_`, ''];
+  const sub = [TAB_NAMES[st], $('#tGrupo').value, $('#tMarca').value].filter(Boolean).map(x => x.toUpperCase()).join(' · ');
+  const out = [`*${title}${sub ? ' · ' + sub : ''} · ${cur === 'USD' ? 'US$' : 'R$'}*`, `_Atualizada em ${now.toLocaleDateString('pt-BR')} às ${fTime(now)}${S.rate ? ' · Câmbio R$ ' + nNum(S.rate, 4).replace(/0{1,2}$/, '') : ''}_`, ''];
   if (!L.length) out.push('Nenhum produto neste filtro.');
   const groups = L.some(p => p.grupo); let lastG = null;
   L.forEach(p => {
@@ -648,7 +653,11 @@ function tabText(cur) {
 }
 function renderTab() {
   if (S.tab !== 'tab') return;
-  $('#tUsd').value = tabText('USD'); $('#tBrl').value = tabText('BRL');
+  fillGM($('#tGrupo'), $('#tMarca'));
+  const c = $('#tCur').value; $('#tCardUsd').hidden = c === 'BRL'; $('#tCardBrl').hidden = c === 'USD';
+  const wait = 'Escolha a tabela e clique em Carregar lista.';
+  $('#tUsd').value = S.tabLoaded ? tabText('USD') : wait; $('#tBrl').value = S.tabLoaded ? tabText('BRL') : wait;
+  $$('#pane-tab [data-copy]').forEach(b => b.disabled = !S.tabLoaded);
 }
 document.addEventListener('click', async e => {
   const b = e.target.closest('[data-copy]'); if (!b) return;
