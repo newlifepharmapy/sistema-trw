@@ -632,10 +632,12 @@ $('#tFilter').oninput = renderTab;
 ['tStock', 'tGrupo', 'tMarca', 'tCur'].forEach(id => $('#' + id).addEventListener('change', () => { S.tabLoaded = false; renderTab(); }));
 $('#tLoad').onclick = () => { S.tabLoaded = true; renderTab(); toast('Lista carregada.'); };
 const TAB_NAMES = { PY: 'Paraguay', SP: 'São Paulo', any: 'Paraguay e São Paulo', all: '' };
+// a product priced only in reais still gets a dollar price from the rate; one with no price at all says "consultar"
+const tabPrice = (p, cur) => cur === 'USD' && !(+p.precoUsd) && +p.precoBrl && S.rate ? r2(p.precoBrl / S.rate) : priceFor(p, cur);
 function tabText(cur) {
   const st = $('#tStock').value, f = $('#tFilter').value.trim().toLowerCase();
   const qty = p => st === 'PY' || st === 'SP' ? stockOf(p, st) : stockOf(p, 'PY') + stockOf(p, 'SP');
-  const L = S.products.filter(p => matchP(p, f) && gmMatch(p, $('#tGrupo'), $('#tMarca')) && (st === 'all' || (st === 'any' ? stockOf(p, 'PY') > 0 || stockOf(p, 'SP') > 0 : stockOf(p, st) > 0)) && priceFor(p, cur) > 0)
+  const L = S.products.filter(p => matchP(p, f) && gmMatch(p, $('#tGrupo'), $('#tMarca')) && (st === 'all' || (st === 'any' ? stockOf(p, 'PY') > 0 || stockOf(p, 'SP') > 0 : stockOf(p, st) > 0)))
     .sort((a, b) => gOf(a).localeCompare(gOf(b), 'pt-BR') || a.nome.localeCompare(b.nome));
   const now = new Date(), title = ($('#tTitle').value.trim() || 'TABELA DE PREÇOS').toUpperCase();
   const sub = [TAB_NAMES[st], $('#tGrupo').value, $('#tMarca').value].filter(Boolean).map(x => x.toUpperCase()).join(' · ');
@@ -646,7 +648,7 @@ function tabText(cur) {
     if (groups && gOf(p) !== lastG) { lastG = gOf(p); out.push((out[out.length - 1] === "" ? "" : "\n") + `*${(lastG === SEM_G ? "Outros" : lastG).toUpperCase()}*`); }
     const fl = firstLot(p, st === 'PY' || st === 'SP' ? st : '');
     const extra = [$('#tVal').checked && fl?.validade ? 'val. ' + fVal(fl.validade) : '', $('#tQty').checked ? qty(p) + ' un.' : ''].filter(Boolean).join(' · ');
-    out.push(`▪️ ${$('#tCode').checked && p.codigo ? p.codigo + ' · ' : ''}${p.nome}${extra ? ` (${extra})` : ''} — *${nMoney(priceFor(p, cur), cur)}*`);
+    out.push(`▪️ ${$('#tCode').checked && p.codigo ? p.codigo + ' · ' : ''}${p.nome}${extra ? ` (${extra})` : ''} — *${tabPrice(p, cur) > 0 ? nMoney(tabPrice(p, cur), cur) : 'consultar'}*`);
   });
   out.push('', `_${L.length} produtos · valores sujeitos a alteração_`);
   return out.join('\n');
@@ -658,6 +660,8 @@ function renderTab() {
   const wait = 'Escolha a tabela e clique em Carregar lista.';
   $('#tUsd').value = S.tabLoaded ? tabText('USD') : wait; $('#tBrl').value = S.tabLoaded ? tabText('BRL') : wait;
   $$('#pane-tab [data-copy]').forEach(b => b.disabled = !S.tabLoaded);
+  const np = S.tabLoaded ? (($('#tUsd').value.match(/\*consultar\*/g) || []).length) : 0;
+  $('#tNoPrice').hidden = !np; $('#tNoPrice').textContent = `${np} produto${np > 1 ? 's' : ''} desta lista ${np > 1 ? 'estão' : 'está'} sem preço de venda e ${np > 1 ? 'aparecem' : 'aparece'} como "consultar". Cadastre o preço em Produtos › Editar.`;
 }
 document.addEventListener('click', async e => {
   const b = e.target.closest('[data-copy]'); if (!b) return;
