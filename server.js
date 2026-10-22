@@ -82,7 +82,7 @@ async function loadUser(req, res, next) {
 }
 const auth = h(loadUser);
 // permissions: each user has a list chosen by whoever manages users; users saved before this existed get the defaults of their role
-const PERMS = ['dash', 'vendas_PY', 'vendas_SP', 'lucro', 'cancelar', 'excluir', 'exportar', 'produtos', 'compras', 'importacoes', 'cambio', 'usuarios'];
+const PERMS = ['dash', 'vendas_PY', 'vendas_SP', 'clientes', 'lucro', 'cancelar', 'excluir', 'exportar', 'produtos', 'compras', 'importacoes', 'cambio', 'usuarios'];
 // permanent deletion is never part of a default: a supervisor has to switch it on for the person
 function defaultPerms(papel, loja) {
   if (papel === 'supervisor') return PERMS.filter(p => p !== 'excluir');
@@ -211,6 +211,9 @@ app.get('/api/data', auth, h(async (req, res) => {
   out.users = us.rows.map(pubUser);
   out.transfers = tr.rows.map(mapTransfer);
   out.quotes = qt.rows.map(mapQuote);
+  // everyone who sells picks customers by name; the account balance only goes to those who manage customers
+  const cl = await pool.query(`select c.*, b.usd, b.brl from customers c left join (${BAL}) b on b.cliente_id = c.id where c.ativo order by lower(c.nome)`);
+  out.customers = cl.rows.map(r => ({ ...mapCustomer(r), ...(has(u, 'clientes') ? { saldoUsd: r2(+r.usd || 0), saldoBrl: r2(+r.brl || 0) } : {}) }));
   res.json(out);
 }));
 
@@ -385,6 +388,82 @@ app.delete('/api/products/:id', auth, need('produtos'), h(async (req, res) => {
   bump(); res.json({ ok: true });
 }));
 
+// ---------- clientes ----------
+// a sale or quote belongs to the registered customer whose name was typed in it
+const linkCli = (c, table, id) => c.query(`update ${table} set cliente_id = (select id from customers where ativo and lower(nome) = lower(trim(${table}.cliente)) order by id limit 1) where id=$1`, [id]);
+const mapCustomer = r => ({ id: r.id, nome: r.nome, telefone: r.telefone, cidade: r.cidade, obs: r.obs, ativo: r.ativo });
+// balance: credits minus debits, each converted at the rate of its own day; below zero the customer owes
+const BAL = `select cliente_id, sum(case when tipo='credito' then 1 else -1 end * case when moeda='USD' then valor else valor / nullif(cotacao,0) end) usd,
+  sum(case when tipo='credito' then 1 else -1 end * case when moeda='BRL' then valor else valor * cotacao end) brl from customer_moves where not cancelado group by cliente_id`;
+function customerBody(b) {
+  const nome = str(b.nome, 120); if (!nome) bad('Informe o nome do cliente.');
+  return [nome, str(b.telefone, 40), str(b.cidade, 80), str(b.obs, 500)];
+}
+async function customerNameFree(nome, id = 0) {
+  const { rows } = await pool.query('select 1 from customers where ativo and lower(nome)=lower($1) and id<>$2', [nome, id]);
+  if (rows.length) bad('Já existe um cliente com este nome.');
+}
+// sales and quotes typed with this name before the customer was registered join the customer
+const adoptByName = (id, nome) => Promise.all(['sales', 'quotes'].map(t => pool.query(`update ${t} set cliente_id=$1 where cliente_id is null and lower(trim(cliente))=lower($2)`, [id, nome])));
+app.post('/api/customers', auth, need('clientes'), h(async (req, res) => {
+  const v = customerBody(req.body); await customerNameFree(v[0]);
+  const { rows } = await pool.query('insert into customers (nome,telefone,cidade,obs,criado_em,criado_por) values ($1,$2,$3,$4,$5,$6) returning *', [...v, Date.now(), req.user.nome]);
+  await adoptByName(rows[0].id, v[0]);
+  bump(); res.json({ ok: true, customer: mapCustomer(rows[0]) });
+}));
+app.put('/api/customers/:id', auth, need('clientes'), h(async (req, res) => {
+  const v = customerBody(req.body), id = +req.params.id; await customerNameFree(v[0], id);
+  const r = await pool.query('update customers set nome=$1,telefone=$2,cidade=$3,obs=$4 where id=$5 and ativo', [...v, id]);
+  if (!r.rowCount) bad('Cliente não encontrado.');
+  await adoptByName(id, v[0]);
+  bump(); res.json({ ok: true });
+}));
+// a customer is only deactivated: the sales and the account stay in history
+app.delete('/api/customers/:id', auth, need('clientes'), h(async (req, res) => {
+  await pool.query('update customers set ativo=false where id=$1', [+req.params.id]);
+  bump(); res.json({ ok: true });
+}));
+app.get('/api/customers/:id', auth, need('clientes'), h(async (req, res) => {
+  const id = +req.params.id;
+  const [cu, sa, qu, mv] = await Promise.all([
+    pool.query('select * from customers where id=$1', [id]),
+    pool.query('select * from sales where cliente_id=$1 order by ts desc limit 1000', [id]),
+    pool.query('select * from quotes where cliente_id=$1 order by ts desc limit 300', [id]),
+    pool.query('select * from customer_moves where cliente_id=$1 order by ts desc', [id]),
+  ]);
+  if (!cu.rows[0]) bad('Cliente não encontrado.');
+  const lucro = has(req.user, 'lucro');
+  res.json({ customer: mapCustomer(cu.rows[0]),
+    sales: sa.rows.map(mapSale).map(x => lucro ? x : { ...x, custoUsd: null, itens: (x.itens || []).map(({ custoUsd, ce, ...i }) => i) }),
+    quotes: qu.rows.map(mapQuote),
+    moves: mv.rows.map(m => ({ id: m.id, data: m.data, ts: m.ts, tipo: m.tipo, moeda: m.moeda, valor: m.valor, cotacao: m.cotacao, descricao: m.descricao, vendaId: m.venda_id, criadoPor: m.criado_por, cancelado: m.cancelado, canceladoPor: m.cancelado_por })) });
+}));
+// a credit is money the customer paid or left in advance; a debit is what the customer owes, such as a sale on credit
+app.post('/api/customers/:id/moves', auth, need('clientes'), h(async (req, res) => {
+  const b = req.body, id = +req.params.id;
+  const tipo = ['credito', 'debito'].includes(b.tipo) ? b.tipo : bad('Escolha crédito ou débito.');
+  const moeda = MOEDAS.includes(b.moeda) ? b.moeda : bad('Moeda inválida.');
+  const valor = r2(num(b.valor)); if (!(valor > 0)) bad('Informe o valor.');
+  const { rows: cu } = await pool.query('select id from customers where id=$1 and ativo', [id]); if (!cu[0]) bad('Cliente não encontrado.');
+  let rate = await currentRate(), vendaId = null;
+  if (b.vendaId) {
+    const { rows } = await pool.query('select id, cotacao from sales where id=$1 and cliente_id=$2 and not cancelada', [+b.vendaId, id]);
+    if (!rows[0]) bad('Venda não encontrada para este cliente.');
+    const { rows: ex } = await pool.query('select 1 from customer_moves where venda_id=$1 and not cancelado', [rows[0].id]);
+    if (ex.length) bad('Esta venda já foi lançada na conta do cliente.');
+    vendaId = rows[0].id; rate = +rows[0].cotacao || rate;
+  }
+  if (!rate) bad('Defina a cotação do dólar antes.');
+  await pool.query('insert into customer_moves (cliente_id,data,ts,tipo,moeda,valor,cotacao,descricao,venda_id,criado_por) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',
+    [id, isDate(b.data) ? b.data : todayStr(), Date.now(), tipo, moeda, valor, rate, str(b.descricao, 300), vendaId, req.user.nome]);
+  bump(); res.json({ ok: true });
+}));
+app.post('/api/customer-moves/:id/cancel', auth, need('clientes'), h(async (req, res) => {
+  const r = await pool.query('update customer_moves set cancelado=true, cancelado_por=$1, cancelado_em=$2 where id=$3 and not cancelado', [req.user.nome, Date.now(), +req.params.id]);
+  if (!r.rowCount) bad('Lançamento não encontrado ou já cancelado.');
+  bump(); res.json({ ok: true });
+}));
+
 // ---------- vendas ----------
 const PAYS = ['PIX / Transf.', 'USDT', 'EFETIVO'];
 app.post('/api/sales', auth, h(async (req, res) => {
@@ -403,6 +482,7 @@ app.post('/api/sales', auth, h(async (req, res) => {
     const { rows } = await c.query(`insert into sales (loja,data,ts,moeda,total,cotacao,pagamento,cliente,itens,custo_usd,vendedor_id,vendedor_nome)
       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) returning *`,
       [loja, todayStr(), Date.now(), moeda, total, rate, b.pagamento, str(b.cliente, 120), JSON.stringify(itens), r2(custoUsd), u.id, u.nome]);
+    await linkCli(c, 'sales', rows[0].id);
     // a sale made from a quote closes that quote
     if (b.orcamentoId) await c.query(`update quotes set status='vendido', venda_id=$1 where id=$2 and loja=$3 and status='aberto'`, [rows[0].id, +b.orcamentoId, loja]);
     return rows[0];
@@ -460,7 +540,8 @@ app.put('/api/sales/:id', auth, need('cancelar'), h(async (req, res) => {
     const total = r2(itens.reduce((a, i) => a + i.qtd * i.preco, 0));
     const { rows } = await c.query(`update sales set moeda=$1, total=$2, pagamento=$3, cliente=$4, itens=$5, custo_usd=$6 where id=$7 returning *`,
       [moeda, total, b.pagamento, str(b.cliente, 120), JSON.stringify(itens), r2(custoUsd), s.id]);
-    return rows[0];
+    await linkCli(c, 'sales', s.id);
+    return (await c.query('select * from sales where id=$1', [s.id])).rows[0];
   });
   bump(); res.json({ sale: mapSale(out) });
 }));
@@ -655,6 +736,7 @@ app.post('/api/quotes', auth, h(async (req, res) => {
   const u = req.user, q = await quoteBody(req.body, u);
   const { rows } = await pool.query(`insert into quotes (loja,data,ts,moeda,cliente,obs,validade,itens,total,cotacao,vendedor_id,vendedor_nome,subtotal,frete_pct,frete_valor,freteiro) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) returning *`,
     [q.loja, todayStr(), Date.now(), q.moeda, q.cliente, q.obs, q.validade, JSON.stringify(q.itens), q.total, q.rate, u.id, u.nome, q.subtotal, q.fretePct, q.freteValor, q.freteiro]);
+  await linkCli(pool, 'quotes', rows[0].id);
   bump(); res.json({ ok: true, quote: mapQuote(rows[0]) });
 }));
 // only an open quote can be edited; it keeps its number and date, and takes the current rate
@@ -667,6 +749,7 @@ app.put('/api/quotes/:id', auth, h(async (req, res) => {
   const { rows } = await pool.query(`update quotes set loja=$1, moeda=$2, cliente=$3, obs=$4, validade=$5, itens=$6, total=$7, cotacao=$8, subtotal=$10, frete_pct=$11, frete_valor=$12, freteiro=$13 where id=$9 and status='aberto' returning *`,
     [q.loja, q.moeda, q.cliente, q.obs, q.validade, JSON.stringify(q.itens), q.total, q.rate, old.id, q.subtotal, q.fretePct, q.freteValor, q.freteiro]);
   if (!rows[0]) bad('Este orçamento mudou de situação. Atualize a página.');
+  await linkCli(pool, 'quotes', rows[0].id);
   bump(); res.json({ ok: true, quote: mapQuote(rows[0]) });
 }));
 app.post('/api/quotes/:id/cancel', auth, h(async (req, res) => {

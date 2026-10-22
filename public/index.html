@@ -61,6 +61,7 @@
         <button data-tab="SP"><i class="ic flag-br"></i>Vendas São Paulo</button>
         <button data-tab="orc"><i class="ic">✎</i>Orçamentos</button>
         <button data-tab="hist"><i class="ic">≡</i>Histórico de vendas</button>
+        <button data-tab="cli"><i class="ic">☻</i>Clientes</button>
         <button data-tab="tab"><i class="ic">✆</i>Tabela WhatsApp</button>
       </div>
       <div class="nav-g"><span>Estoque</span>
@@ -134,6 +135,26 @@
         </div>
         <div class="kpis" id="hKpis"></div>
         <div class="card"><div class="tablewrap" id="hTable"></div></div>
+      </section>
+
+      <!-- CUSTOMERS -->
+      <section class="pane" id="pane-cli" hidden>
+        <div class="card">
+          <div class="row between"><h2 id="cTitle">Novo cliente</h2><button class="btn small" id="cEditCancel" hidden>Cancelar edição</button></div>
+          <div class="fields">
+            <label class="field"><span class="lbl">Nome</span><input type="text" id="cNome" maxlength="120" autocomplete="off"></label>
+            <label class="field"><span class="lbl">Telefone</span><input type="tel" id="cTel" maxlength="40" placeholder="Ex.: 0981 123456"></label>
+            <label class="field"><span class="lbl">Cidade</span><input type="text" id="cCid" maxlength="80"></label>
+            <label class="field"><span class="lbl">Observação</span><input type="text" id="cObs" maxlength="500"></label>
+            <div class="field end"><button class="btn primary" id="cSave">Cadastrar cliente</button></div>
+          </div>
+          <p class="hint">Nas vendas e nos orçamentos, escreva o nome do cliente como está aqui (o sistema sugere enquanto você digita) para tudo ficar registrado na ficha dele.</p>
+        </div>
+        <div class="card">
+          <div class="row between"><h2>Clientes</h2><input type="search" id="cFind" placeholder="Buscar por nome, telefone ou cidade" style="max-width:320px"></div>
+          <div class="tablewrap" id="cList"></div>
+        </div>
+        <div class="card" id="cDetail" hidden></div>
       </section>
 
       <!-- STOCK -->
@@ -238,7 +259,7 @@
           <div class="fields">
             <label class="field"><span class="lbl">Loja</span><select id="oLoja"></select></label>
             <label class="field"><span class="lbl">Moeda</span><select id="oCur"><option value="USD">Dólar (US$)</option><option value="BRL">Real (R$)</option></select></label>
-            <label class="field span2"><span class="lbl">Cliente (nome e telefone)</span><input type="text" id="oCli" placeholder="Ex.: Farmácia Central 0981 123456"></label>
+            <label class="field span2"><span class="lbl">Cliente (nome e telefone)</span><input type="text" id="oCli" list="dlCli" autocomplete="off" placeholder="Ex.: Farmácia Central 0981 123456"></label>
             <label class="field"><span class="lbl">Válido por (dias)</span><input type="number" id="oDias" min="1" max="365" value="7"></label>
           </div>
           <div class="fields additem">
@@ -471,7 +492,7 @@
   </div>
 </div>
 
-<datalist id="dlGrupo"></datalist><datalist id="dlFor"></datalist><datalist id="dlMarca"></datalist>
+<datalist id="dlCli"></datalist><datalist id="dlGrupo"></datalist><datalist id="dlFor"></datalist><datalist id="dlMarca"></datalist>
 <div id="toastHost"></div>
 <div id="printArea" aria-hidden="true"></div>
 <script src="/app.js"></script>

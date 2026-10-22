@@ -227,5 +227,24 @@ function client() {
   epd = (await adm('/api/data')).data.products.find(x => x.id === ep);
   assert(+epd.precoUsd === 7.5 && +epd.precoBrl === 45, 'Paraguay grava o preço em dólar e São Paulo em reais');
   assert((await ana(`/api/products/${ep}/preco`, 'PUT', { loja: 'PY', valor: 1 })).status === 403, 'editar preço exige a permissão de produtos');
+  // customers
+  const oldSale = (await adm('/api/sales', 'POST', { loja: 'PY', moeda: 'USD', pagamento: 'EFETIVO', cliente: 'Farmácia Boa Saúde', itens: [{ nome: 'Avulso', qtd: 1, preco: 10 }] })).data.sale;
+  const nc = await adm('/api/customers', 'POST', { nome: 'Farmácia Boa Saúde', telefone: '0981 555 444', cidade: 'Asunción' });
+  assert(nc.status === 200 && (await adm('/api/customers', 'POST', { nome: 'farmácia boa saúde' })).status === 400, 'cliente cadastrado, sem nome repetido');
+  const cid = nc.data.customer.id;
+  const ns = (await adm('/api/sales', 'POST', { loja: 'PY', moeda: 'USD', pagamento: 'EFETIVO', cliente: 'farmácia boa saúde ', itens: [{ nome: 'Avulso', qtd: 2, preco: 15 }] })).data.sale;
+  let cd = (await adm(`/api/customers/${cid}`)).data;
+  assert(cd.sales.length === 2 && cd.sales.some(x => x.id === oldSale.id) && cd.sales.some(x => x.id === ns.id), 'vendas novas e antigas com o nome do cliente ficam na ficha');
+  assert((await adm(`/api/customers/${cid}/moves`, 'POST', { tipo: 'debito', moeda: 'USD', valor: 30, vendaId: ns.id })).status === 200, 'venda lançada no débito');
+  assert((await adm(`/api/customers/${cid}/moves`, 'POST', { tipo: 'debito', moeda: 'USD', valor: 30, vendaId: ns.id })).status === 400, 'a mesma venda não entra duas vezes no débito');
+  await adm(`/api/customers/${cid}/moves`, 'POST', { tipo: 'credito', moeda: 'USD', valor: 12, descricao: 'pagou parte' });
+  let cl = (await adm('/api/data')).data.customers.find(x => x.id === cid);
+  assert(cl.saldoUsd === -18, 'saldo: deve US$ 18 depois de pagar 12 de 30');
+  cd = (await adm(`/api/customers/${cid}`)).data;
+  await adm(`/api/customer-moves/${cd.moves.find(m => m.tipo === 'credito').id}/cancel`, 'POST', {});
+  cl = (await adm('/api/data')).data.customers.find(x => x.id === cid);
+  assert(cl.saldoUsd === -30, 'lançamento cancelado sai do saldo');
+  const anaCli = (await ana('/api/data')).data.customers.find(x => x.id === cid);
+  assert(anaCli && anaCli.saldoUsd === undefined && (await ana(`/api/customers/${cid}`)).status === 403, 'vendedor vê o nome do cliente, mas não a conta');
   console.log('\nTodos os testes passaram.');
 })().catch(e => { console.error(e); process.exit(1); });

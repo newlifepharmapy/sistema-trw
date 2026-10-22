@@ -258,6 +258,9 @@ tr.grp-row td{background:var(--surface-2);border-top:2px solid var(--line-2);pad
 #oFilter{width:auto;min-width:180px} #orcList td.r.num{white-space:nowrap}
 .warnline{color:var(--warn);font-weight:600}
 td input.prin{width:110px;text-align:right;padding:4px 8px;font-family:var(--f-num)}
+.mvform{grid-template-columns:1.6fr 1fr 1fr 1fr 2fr auto;align-items:end}
+@media (max-width:640px){.mvform{grid-template-columns:1fr 1fr}}
+#cDetail h3{margin:18px 0 8px;font-size:1rem}
 .editbar{background:var(--warn-soft);border-radius:8px;padding:8px 10px;gap:8px}
 /* lots: one line per lot inside the stock cells, lot picker in the cart, lot list in the product form */
 td.lotc div{min-height:24px;display:flex;align-items:center;gap:4px}

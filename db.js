@@ -193,6 +193,37 @@ create table if not exists imports (
 alter table imports add column if not exists cancelada boolean not null default false;
 alter table imports add column if not exists cancelada_por text;
 alter table imports add column if not exists cancelada_em bigint;
+-- customers, and their account: credits (paid or advanced) and debits (owed)
+create table if not exists customers (
+  id serial primary key,
+  nome text not null,
+  telefone text not null default '',
+  cidade text not null default '',
+  obs text not null default '',
+  ativo boolean not null default true,
+  criado_em bigint not null,
+  criado_por text not null default ''
+);
+create table if not exists customer_moves (
+  id serial primary key,
+  cliente_id int not null references customers(id) on delete cascade,
+  data date not null,
+  ts bigint not null,
+  tipo text not null check (tipo in ('credito','debito')),
+  moeda text not null check (moeda in ('USD','BRL')),
+  valor numeric not null,
+  cotacao numeric not null,
+  descricao text not null default '',
+  venda_id int,
+  criado_por text not null,
+  cancelado boolean not null default false,
+  cancelado_por text,
+  cancelado_em bigint
+);
+create index if not exists customer_moves_cli_idx on customer_moves (cliente_id, ts desc);
+alter table sales add column if not exists cliente_id int;
+alter table quotes add column if not exists cliente_id int;
+create index if not exists sales_cliente_idx on sales (cliente_id);
 -- one-time data changes already applied
 create table if not exists migrations (name text primary key, ts bigint not null);
 `;
@@ -210,6 +241,11 @@ async function migrate() {
       from purchases p, jsonb_array_elements(p.itens) i where not p.cancelada and i->>'pid' is not null order by i->>'pid', p.loja, coalesce(i->>'lote',''), coalesce(i->>'validade',''), p.ts desc) x
     where l.product_id = x.pid and l.loja = x.loja and l.lote = x.lote and l.validade = x.validade and l.fornecedor = ''`);
   if (!(await pool.query(`select 1 from migrations where name='lucro'`)).rows.length) await migrateProfit();
+  // supervisors already saved with their own list get the customers tab
+  if (!(await pool.query(`select 1 from migrations where name='clientes'`)).rows.length) {
+    await pool.query(`update users set permissoes = permissoes || '["clientes"]'::jsonb where papel='supervisor' and jsonb_typeof(permissoes)='array' and not permissoes ? 'clientes'`);
+    await pool.query(`insert into migrations (name, ts) values ('clientes', $1) on conflict do nothing`, [Date.now()]);
+  }
   // the store forms are exactly 15 cm tall (the 6 in = 15,24 cm paper made each note creep 2,4 mm onto the perforation):
   // earlier defaults move to 15 cm once
   await pool.query(`update settings set nota = jsonb_set(coalesce(nota, '{}'::jsonb), '{papel}', '{"altura": 15, "v": 3}'::jsonb)

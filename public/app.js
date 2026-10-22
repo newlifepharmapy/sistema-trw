@@ -5,7 +5,7 @@ const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const LOJAS = { PY: { nome: 'Paraguay', cur: 'USD' }, SP: { nome: 'São Paulo', cur: 'BRL' } };
 const PAYS = ['PIX / Transf.', 'USDT', 'EFETIVO'];
-const TITLES = { dash: 'Dashboard', PY: 'Vendas Paraguay', SP: 'Vendas São Paulo', orc: 'Orçamentos', hist: 'Histórico de vendas', tab: 'Tabela WhatsApp', stock: 'Estoque total', stPY: 'Estoque Paraguay', stSP: 'Estoque São Paulo', prod: 'Produtos', buy: 'Compras e entradas', trf: 'Transferência PY → SP', imp: 'Importações', fx: 'Câmbio', users: 'Usuários', nota: 'Impressão da nota', bot: 'Bot WhatsApp' };
+const TITLES = { dash: 'Dashboard', PY: 'Vendas Paraguay', SP: 'Vendas São Paulo', orc: 'Orçamentos', hist: 'Histórico de vendas', cli: 'Clientes', tab: 'Tabela WhatsApp', stock: 'Estoque total', stPY: 'Estoque Paraguay', stSP: 'Estoque São Paulo', prod: 'Produtos', buy: 'Compras e entradas', trf: 'Transferência PY → SP', imp: 'Importações', fx: 'Câmbio', users: 'Usuários', nota: 'Impressão da nota', bot: 'Bot WhatsApp' };
 const ls = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
 
 const S = { v: null, rate: null, settings: null, historico: [], users: [], products: [], sales: [], purchases: [], imports: [], transfers: [], trfItems: [], quotes: [], orcItems: [], me: null, tab: null,
@@ -52,6 +52,7 @@ const PERMS = [
   ['dash', 'Dashboard', 'Ver o painel e as vendas de todas as lojas'],
   ['vendas_PY', 'Vender no Paraguay', 'Aba Vendas Paraguay'],
   ['vendas_SP', 'Vender em São Paulo', 'Aba Vendas São Paulo'],
+  ['clientes', 'Clientes', 'Cadastro de clientes, histórico de compras, crédito e débito'],
   ['lucro', 'Ver lucro e custos', 'Custo, lucro e margem nas vendas, no histórico, nos orçamentos e no dashboard'],
   ['cancelar', 'Cancelar operações', 'Vendas, compras e importações: desfaz no estoque e fica no histórico'],
   ['excluir', 'Excluir definitivamente', 'Apaga de vez o que foi cancelado, produtos, cotações e usuários inativos'],
@@ -65,7 +66,7 @@ const PERMS = [
 const PRESET = { supervisor: PERMS.map(p => p[0]).filter(p => p !== 'excluir'), vendedor: ['vendas_PY'] };
 const can = p => !!(S.me && (S.me.permissoes || []).includes(p));
 const canStore = l => can('vendas_' + l);
-const TAB_PERM = { dash: 'dash', PY: 'vendas_PY', SP: 'vendas_SP', buy: 'compras', trf: 'compras', imp: 'importacoes', fx: 'cambio', users: 'usuarios', nota: 'usuarios', bot: 'usuarios' };
+const TAB_PERM = { cli: 'clientes', dash: 'dash', PY: 'vendas_PY', SP: 'vendas_SP', buy: 'compras', trf: 'compras', imp: 'importacoes', fx: 'cambio', users: 'usuarios', nota: 'usuarios', bot: 'usuarios' };
 const stockOf = (p, l) => +(p.estoque?.[l] ?? 0);
 // SP units carry the freight paid to bring them, so their cost can be higher than in PY
 const costOf = (p, l) => +(l === 'SP' && p.custoSp != null ? p.custoSp : p.custo) || 0;
@@ -161,7 +162,7 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) chec
 function setLive(ok) { $('#live').classList.toggle('off', !ok); $('#live span').textContent = ok ? 'Online' : 'Sem conexão'; }
 async function loadData() {
   const d = await api('/data');
-  Object.assign(S, { v: d.v, settings: d.settings, historico: d.historico, products: d.products, sales: d.sales, purchases: d.purchases, imports: d.imports, users: d.users, transfers: d.transfers || [], quotes: d.quotes || [] });
+  Object.assign(S, { v: d.v, settings: d.settings, historico: d.historico, products: d.products, sales: d.sales, purchases: d.purchases, imports: d.imports, users: d.users, transfers: d.transfers || [], quotes: d.quotes || [], customers: d.customers || [] });
   S.rate = d.settings && +d.settings.cotacao || null;
   fillDatalists();
   // permissions changed by a supervisor take effect on the next refresh, without logging out
@@ -197,7 +198,7 @@ function refresh() {
   $('#rateWhen').textContent = at ? (isToday ? 'hoje ' + fTime(at) : 'em ' + new Date(+at).toLocaleDateString('pt-BR')) : '';
   $('#rateWhen').className = 'when' + (at && !isToday ? ' pill warn' : '');
   $('#noRate').hidden = !!S.rate;
-  ({ dash: renderDash, PY: () => renderSaleData('PY'), SP: () => renderSaleData('SP'), orc: renderOrc, hist: renderHist, tab: renderTab, buy: renderBuy, trf: renderTrf, imp: renderImp, prod: renderProd, stock: renderStock, stPY: () => renderStore('PY'), stSP: () => renderStore('SP'), fx: renderFx, users: renderUsers, nota: renderNota, bot: renderBot })[S.tab]?.();
+  ({ dash: renderDash, PY: () => renderSaleData('PY'), SP: () => renderSaleData('SP'), orc: renderOrc, hist: renderHist, cli: renderCli, tab: renderTab, buy: renderBuy, trf: renderTrf, imp: renderImp, prod: renderProd, stock: renderStock, stPY: () => renderStore('PY'), stSP: () => renderStore('SP'), fx: renderFx, users: renderUsers, nota: renderNota, bot: renderBot })[S.tab]?.();
 }
 
 /* ---------- sale panes ---------- */
@@ -218,7 +219,7 @@ function buildSalePane(l) {
       <div class="row between"><span class="lbl">Moeda da venda</span><div class="seg" id="cur-${l}"><button data-c="USD">US$</button><button data-c="BRL">R$</button></div></div>
       <div><span class="lbl">Total</span><div class="total" id="tot-${l}">—</div><div class="equiv" id="eq-${l}"></div></div>
       <div><span class="lbl">Pagamento</span><div class="pays" id="pay-${l}" style="margin-top:6px">${PAYS.map(p => `<button data-p="${p}">${p}</button>`).join('')}</div></div>
-      <label class="field"><span class="lbl">Cliente (opcional)</span><input type="text" id="cli-${l}" placeholder="Nome ou telefone"></label>
+      <label class="field"><span class="lbl">Cliente (opcional)</span><input type="text" id="cli-${l}" list="dlCli" autocomplete="off" placeholder="Nome ou telefone"></label>
       <button class="btn primary go" id="go-${l}">Registrar venda</button>
       <div class="hint">Atalhos: <span class="kbd">Enter</span> adiciona produto · <span class="kbd">F2</span> registra a venda</div>
     </aside>
@@ -595,6 +596,7 @@ function fillGM(gSel, mSel) {
 }
 const gmMatch = (p, gSel, mSel) => (!gSel || !gSel.value || gOf(p) === gSel.value) && (!mSel || !mSel.value || mOf(p) === mSel.value);
 function fillDatalists() {
+  $('#dlCli').innerHTML = (S.customers || []).map(c => `<option value="${esc(c.nome)}">${esc([c.telefone, c.cidade].filter(Boolean).join(' · '))}</option>`).join('');
   const fs = [...new Set(S.purchases.flatMap(p => [p.fornecedor, ...(p.itens || []).map(i => i.fornecedor)]).concat(S.products.flatMap(p => (p.lotes || []).map(x => x.fornecedor))).map(x => (x || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
   $('#dlFor').innerHTML = fs.map(x => `<option value="${esc(x)}">`).join('');
   $('#dlGrupo').innerHTML = uniq(p => (p.grupo || '').trim()).filter(Boolean).map(x => `<option value="${esc(x)}">`).join('');
@@ -669,6 +671,76 @@ document.addEventListener('click', async e => {
   try { await navigator.clipboard.writeText(t.value); } catch (err) { t.select(); document.execCommand('copy'); }
   toast('Tabela copiada. Cole no WhatsApp.');
 });
+
+/* ---------- customers ---------- */
+// the account: a credit is money the customer paid or left in advance, a debit is what the customer owes;
+// below zero the customer owes, above zero the customer has credit
+const balCell = (usd, brl) => !+usd && !+brl ? '<span class="hint">em dia</span>'
+  : `<b class="${usd < 0 ? 'neg' : 'pos'}">${usd < 0 ? 'deve ' : 'crédito '}${fm(Math.abs(usd), 'USD')}</b><div class="hint">${fm(Math.abs(brl), 'BRL')}</div>`;
+$('#cFind').oninput = () => renderCli();
+function cliForm(c) { $('#cNome').value = c?.nome || ''; $('#cTel').value = c?.telefone || ''; $('#cCid').value = c?.cidade || ''; $('#cObs').value = c?.obs || ''; }
+$('#cSave').onclick = async () => {
+  const body = { nome: $('#cNome').value, telefone: $('#cTel').value, cidade: $('#cCid').value, obs: $('#cObs').value };
+  if (!body.nome.trim()) return toast('Informe o nome do cliente.', true);
+  const ok = await act(() => api(S.cliEdit ? '/customers/' + S.cliEdit : '/customers', S.cliEdit ? 'PUT' : 'POST', body), S.cliEdit ? 'Cliente alterado.' : 'Cliente cadastrado.');
+  if (ok) { if (S.cliEdit && S.cliView === S.cliEdit) S.cliDataV = null; S.cliEdit = null; cliForm(); renderCli(); }
+};
+$('#cEditCancel').onclick = () => { S.cliEdit = null; cliForm(); renderCli(); };
+async function loadCli(id) {
+  try { S.cliData = await api('/customers/' + id); S.cliDataV = S.v; } catch (e) { if (!e.handled) toast(e.message, true); S.cliView = null; S.cliData = null; }
+  renderCli();
+}
+document.addEventListener('click', async e => {
+  const v = e.target.closest('[data-cview]'), ed = e.target.closest('[data-cedit]'), off = e.target.closest('[data-coff]');
+  if (v) { S.cliView = +v.dataset.cview; S.cliData = null; $('#cDetail').hidden = false; $('#cDetail').innerHTML = '<div class="empty">Carregando…</div>'; $('#cDetail').scrollIntoView({ behavior: 'smooth' }); loadCli(S.cliView); }
+  if (ed) { const c = S.customers.find(x => x.id === +ed.dataset.cedit); S.cliEdit = c?.id || null; cliForm(c); renderCli(); $('#cTitle').scrollIntoView({ behavior: 'smooth' }); }
+  if (off) { if (!armed(off, 'Confirmar', 'Desativar cliente')) return; off.disabled = true; if (await act(() => api('/customers/' + off.dataset.coff, 'DELETE'), 'Cliente desativado. As vendas dele continuam no histórico.')) { S.cliView = null; S.cliData = null; renderCli(); } }
+  const mc = e.target.closest('[data-mcancel]'); if (mc) { if (!armed(mc, 'Confirmar', 'Cancelar')) return; mc.disabled = true; await act(() => api(`/customer-moves/${mc.dataset.mcancel}/cancel`, 'POST', {}), 'Lançamento cancelado.'); }
+  const sd = e.target.closest('[data-sdeb]'); if (sd) { const x = S.cliData?.sales.find(y => y.id === +sd.dataset.sdeb); if (x) { sd.disabled = true; await act(() => api(`/customers/${S.cliView}/moves`, 'POST', { tipo: 'debito', moeda: x.moeda, valor: +x.total, vendaId: x.id, descricao: `Venda nº ${x.id} a prazo` }), 'Venda lançada no débito do cliente.'); } }
+  const sp = e.target.closest('[data-sprint]'); if (sp) printNota(S.cliData?.sales.find(y => y.id === +sp.dataset.sprint));
+  if (e.target.closest('#mAdd')) {
+    const body = { tipo: $('#mTipo').value, moeda: $('#mCur').value, valor: +$('#mVal').value, descricao: $('#mDesc').value, data: $('#mData').value };
+    if (!(body.valor > 0)) return toast('Informe o valor.', true);
+    if (await act(() => api(`/customers/${S.cliView}/moves`, 'POST', body), body.tipo === 'credito' ? 'Crédito lançado.' : 'Débito lançado.')) { $('#mVal').value = ''; $('#mDesc').value = ''; }
+  }
+});
+function renderCli() {
+  const f = $('#cFind').value.trim().toLowerCase();
+  const L = S.customers.filter(c => !f || [c.nome, c.telefone, c.cidade].some(x => (x || '').toLowerCase().includes(f)));
+  $('#cTitle').textContent = S.cliEdit ? 'Editar cliente' : 'Novo cliente'; $('#cEditCancel').hidden = !S.cliEdit; $('#cSave').textContent = S.cliEdit ? 'Salvar alterações' : 'Cadastrar cliente';
+  $('#cList').innerHTML = L.length ? `<table><thead><tr><th>Nome</th><th>Telefone</th><th>Cidade</th><th>Observação</th><th class="r">Saldo</th><th></th></tr></thead><tbody>${L.map(c => `<tr><td><b>${esc(c.nome)}</b></td><td class="num">${esc(c.telefone || '—')}</td><td>${esc(c.cidade || '—')}</td><td class="hint">${esc(c.obs || '')}</td><td class="r num">${balCell(c.saldoUsd, c.saldoBrl)}</td><td class="r" style="white-space:nowrap"><button class="btn small primary" data-cview="${c.id}">Ficha</button> <button class="btn small" data-cedit="${c.id}">Editar</button></td></tr>`).join('')}</tbody></table>`
+    : `<div class="empty">${S.customers.length ? 'Nenhum cliente nesta busca.' : 'Nenhum cliente cadastrado ainda. Cadastre acima.'}</div>`;
+  // the open customer card follows changes made on any computer, but not while something is being typed in it
+  if ($('#cDetail').contains(document.activeElement) && document.activeElement.matches('input, select')) return;
+  if (S.cliView && S.cliData && S.cliDataV !== S.v) return loadCli(S.cliView);
+  if (S.cliView && S.cliData) renderCliDetail();
+}
+function renderCliDetail() {
+  const { customer: c, sales, quotes, moves } = S.cliData, cs = S.customers.find(x => x.id === c.id) || {};
+  const ok = sales.filter(x => !x.cancelada), totU = ok.reduce((a, x) => a + (saleIn(x, 'USD') || 0), 0), totB = ok.reduce((a, x) => a + (saleIn(x, 'BRL') || 0), 0);
+  const debited = new Set(moves.filter(m => !m.cancelado && m.vendaId).map(m => m.vendaId));
+  const k = (label, v, sub) => `<div class="kpi"><span class="lbl">${label}</span><span class="v">${v}</span><span class="s">${sub}</span></div>`;
+  $('#cDetail').innerHTML = `
+    <div class="row between"><h2>${esc(c.nome)}</h2><div class="row" style="gap:8px"><span class="hint">${esc([c.telefone, c.cidade].filter(Boolean).join(' · '))}</span><button class="btn small danger" data-coff="${c.id}">Desativar cliente</button></div></div>
+    ${c.obs ? `<p class="hint">${esc(c.obs)}</p>` : ''}
+    <div class="kpis" style="margin:12px 0">${k('Saldo da conta', balCell(cs.saldoUsd, cs.saldoBrl), 'créditos menos débitos')}${k('Total comprado', fm(totU, 'USD'), fm(totB, 'BRL'))}${k('Compras', ok.length, ok[0] ? 'última em ' + fDate(ok[0].data) : 'nenhuma ainda')}${k('Orçamentos', quotes.length, quotes.filter(q => q.status === 'aberto').length + ' em aberto')}</div>
+    <h3>Lançar na conta</h3>
+    <div class="fields mvform">
+      <label class="field"><span class="lbl">Tipo</span><select id="mTipo"><option value="debito">Débito (o cliente deve)</option><option value="credito">Crédito (o cliente pagou ou adiantou)</option></select></label>
+      <label class="field"><span class="lbl">Moeda</span><select id="mCur"><option value="USD">Dólar (US$)</option><option value="BRL">Real (R$)</option></select></label>
+      <label class="field"><span class="lbl">Valor</span><input type="number" id="mVal" min="0" step="0.01"></label>
+      <label class="field"><span class="lbl">Data</span><input type="date" id="mData" value="${today()}"></label>
+      <label class="field"><span class="lbl">Descrição</span><input type="text" id="mDesc" maxlength="300" placeholder="Ex.: pagamento via PIX"></label>
+      <div class="field end"><button class="btn primary" id="mAdd">Lançar</button></div>
+    </div>
+    <h3>Conta corrente</h3>
+    <div class="tablewrap">${moves.length ? `<table><thead><tr><th>Data</th><th>Tipo</th><th>Descrição</th><th class="r">Valor</th><th>Lançado por</th><th></th></tr></thead><tbody>${moves.map(m => `<tr class="${m.cancelado ? 'cancel' : ''}"><td class="num">${fDate(m.data)}</td><td>${m.tipo === 'credito' ? '<span class="pill ok">crédito</span>' : '<span class="pill bad">débito</span>'}</td><td>${esc(m.descricao || '—')}${m.vendaId ? ` <span class="hint">venda nº ${m.vendaId}</span>` : ''}</td><td class="r num"><b class="${m.tipo === 'credito' ? 'pos' : 'neg'}">${m.tipo === 'credito' ? '+' : '−'} ${fm(+m.valor, m.moeda)}</b><div class="hint">câmbio ${fRate(m.cotacao)}</div></td><td>${esc(m.criadoPor)}</td><td class="r">${m.cancelado ? '<span class="pill bad">cancelado</span>' : `<button class="btn small danger" data-mcancel="${m.id}">Cancelar</button>`}</td></tr>`).join('')}</tbody></table>` : '<div class="empty">Nenhum crédito ou débito lançado.</div>'}</div>
+    <h3>Compras</h3>
+    <div class="tablewrap">${sales.length ? `<table><thead><tr><th>Data</th><th>Loja</th><th>Itens</th><th>Pagamento</th><th class="r">Valor</th>${can('lucro') ? '<th class="r">Lucro</th>' : ''}<th></th></tr></thead><tbody>${sales.map(x => { const o = x.moeda === 'USD' ? 'BRL' : 'USD';
+      return `<tr class="${x.cancelada ? 'cancel' : ''}"><td class="num">${fDate(x.data)}<div class="hint">nº ${x.id}</div></td><td><span class="pill ${x.loja.toLowerCase()}">${x.loja}</span></td><td style="min-width:260px">${itemLines(x.itens, x.moeda, can('lucro') ? itemProfit(x) : null)}</td><td>${esc(x.pagamento)}</td><td class="r num"><b>${fm(x.total, x.moeda)}</b><div class="hint">${fm(saleIn(x, o), o)}</div></td>${can('lucro') ? profitCell(x) : ''}
+        <td class="r" style="white-space:nowrap"><button class="btn small" data-sprint="${x.id}">Imprimir</button>${x.cancelada ? ' <span class="pill bad">cancelada</span>' : debited.has(x.id) ? ' <span class="pill">no débito</span>' : ` <button class="btn small" data-sdeb="${x.id}" title="Lança o valor desta venda como débito do cliente">Lançar no débito</button>`}</td></tr>`; }).join('')}</tbody></table>` : '<div class="empty">Nenhuma compra registrada com o nome deste cliente.</div>'}</div>
+    ${quotes.length ? `<h3>Orçamentos</h3><div class="tablewrap"><table><thead><tr><th>Nº</th><th>Data</th><th>Itens</th><th>Situação</th><th class="r">Total</th></tr></thead><tbody>${quotes.map(q => `<tr class="${q.status === 'cancelado' ? 'cancel' : ''}"><td class="num">${String(q.id).padStart(6, '0')}</td><td class="num">${fDate(q.data)}</td><td>${itemLines(q.itens, q.moeda)}</td><td>${q.status === 'vendido' ? '<span class="pill ok">virou venda</span>' : q.status === 'cancelado' ? '<span class="pill bad">cancelado</span>' : '<span class="pill">em aberto</span>'}</td><td class="r num">${fm(q.total, q.moeda)}</td></tr>`).join('')}</tbody></table></div>` : ''}`;
+}
 
 /* ---------- stock per store ---------- */
 // cost and price are in dollars and converted at the current rate, so these values follow the dollar
@@ -941,7 +1013,10 @@ document.addEventListener('keydown', e => {
   } else if (!$('#waModal').hidden && e.key === 'Escape') $('#waModal').hidden = true;
 });
 // turns a local number typed with the customer name into the international form wa.me needs
+// a registered customer's phone is used when the name typed in the sale matches
+const custOf = name => (S.customers || []).find(c => c.nome.toLowerCase() === String(name || '').trim().toLowerCase());
 function intlPhone(t, loja) {
+  if (custOf(t)?.telefone) t = custOf(t).telefone;
   let d = String(t || '').replace(/\D/g, '');
   if (d.length < 8) return '';
   if (d.startsWith('00')) d = d.slice(2);
