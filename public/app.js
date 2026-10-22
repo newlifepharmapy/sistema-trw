@@ -460,6 +460,46 @@ function renderHist() {
 // the currency select also says how the dollars are paid: "USD|EFECTIVO", "USD|USDT" or "BRL"
 const bCurV = () => $('#bCur').value.split('|')[0], bPayV = () => $('#bCur').value.split('|')[1] || '';
 $('#bDate').value = today();
+// a product <select> that also takes typing: suggestions follow what is typed (name or code) and the arrow
+// still opens the whole list; the hidden select keeps the value, so the code around it is unchanged
+const SEL_VALUE = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value');
+function combo(sel) {
+  const box = document.createElement('div'), inp = document.createElement('input'), arrow = document.createElement('button'), sg = document.createElement('div');
+  box.className = 'combo'; inp.type = 'text'; inp.autocomplete = 'off'; inp.placeholder = 'Digite o nome ou o código';
+  arrow.type = 'button'; arrow.className = 'cb-arrow'; arrow.tabIndex = -1; arrow.setAttribute('aria-label', 'Mostrar todos'); arrow.textContent = '▾';
+  sg.className = 'sugg'; sg.hidden = true;
+  sel.before(box); box.append(inp, arrow, sg, sel); sel.hidden = true;
+  let hits = [], hi = 0;
+  const opts = () => [...sel.options].filter(o => o.value);
+  const label = () => { const o = sel.selectedOptions[0]; return o && o.value ? o.text : ''; };
+  const sync = () => { if (document.activeElement !== inp) inp.value = label(); const o = sel.options[0]; inp.placeholder = o && !o.value && o.text !== 'Selecione…' ? o.text : 'Digite o nome ou o código'; };
+  Object.defineProperty(sel, 'value', { get() { return SEL_VALUE.get.call(this); }, set(v) { SEL_VALUE.set.call(this, v); sync(); } });
+  new MutationObserver(sync).observe(sel, { childList: true });
+  const draw = all => {
+    const t = all ? '' : inp.value.trim().toLowerCase(), words = t.split(/\s+/).filter(Boolean), O = opts();
+    hits = words.length ? O.filter(o => o.text.toLowerCase().startsWith(t)).concat(O.filter(o => !o.text.toLowerCase().startsWith(t) && words.every(w => o.text.toLowerCase().includes(w)))) : O;
+    hi = Math.min(hi, Math.max(hits.length - 1, 0));
+    sg.innerHTML = hits.length ? hits.map((o, i) => `<button type="button" data-i="${i}" class="${i === hi ? 'on' : ''}">${esc(o.text)}</button>`).join('') : '<div class="empty">Nenhum produto com esse nome ou código.</div>';
+    sg.hidden = false; sg.querySelector('.on')?.scrollIntoView({ block: 'nearest' });
+  };
+  const pick = i => { const o = hits[i]; if (!o) return; SEL_VALUE.set.call(sel, o.value); inp.value = o.text; sg.hidden = true; sel.dispatchEvent(new Event('change')); };
+  inp.oninput = () => { hi = 0; draw(); };
+  inp.onkeydown = e => {
+    if (e.key === 'ArrowDown') { e.preventDefault(); if (sg.hidden) { hi = 0; draw(!inp.value.trim() || inp.value === label()); } else { hi = Math.min(hi + 1, hits.length - 1); draw(inp.value === label()); } }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); if (!sg.hidden) { hi = Math.max(hi - 1, 0); draw(inp.value === label()); } }
+    else if (e.key === 'Enter') { if (!sg.hidden && hits.length) { e.preventDefault(); pick(hi); } }
+    else if (e.key === 'Escape') { sg.hidden = true; }
+  };
+  inp.onfocus = () => inp.select();
+  // leaving the field keeps a real choice: typed text that was not picked goes back to the chosen product
+  inp.onblur = () => setTimeout(() => { sg.hidden = true; if (!inp.value.trim() && sel.value) { SEL_VALUE.set.call(sel, ''); sel.dispatchEvent(new Event('change')); } inp.value = label(); }, 150);
+  arrow.onmousedown = e => e.preventDefault();
+  arrow.onclick = () => { if (!sg.hidden) { sg.hidden = true; return; } hi = Math.max(0, opts().findIndex(o => o.value === sel.value)); inp.focus(); draw(true); };
+  sg.onmousedown = e => e.preventDefault();
+  sg.onclick = e => { const b = e.target.closest('button'); if (b) pick(+b.dataset.i); };
+  sync();
+}
+['#bProd', '#iProd', '#oProd', '#trProd'].forEach(id => combo($(id)));
 const productOptions = () => '<option value="">Selecione…</option>' + S.products.map(p => `<option value="${p.id}">${esc((p.codigo ? p.codigo + ' · ' : '') + p.nome)}</option>`).join('');
 $('#bProd').onchange = () => { const p = S.products.find(x => x.id === +$('#bProd').value); if (p && +p.custo) $('#bCost').value = bCurV() === 'USD' ? p.custo : (S.rate ? r2(p.custo * S.rate) : ''); };
 $('#bAdd').onclick = () => {

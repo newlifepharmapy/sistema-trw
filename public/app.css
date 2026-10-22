@@ -279,3 +279,11 @@ td.buyitems > div + div{margin-top:6px}
 td.r.num{white-space:nowrap}
 .pos{color:var(--good)}
 .neg{color:var(--bad)}
+
+/* product field that takes typing and still opens the full list with the arrow */
+.combo{position:relative}
+.combo input{width:100%;padding-right:34px}
+.combo .cb-arrow{position:absolute;right:4px;top:50%;transform:translateY(-50%);border:0;background:none;color:var(--muted);font-size:1rem;padding:4px 8px;cursor:pointer}
+.combo .sugg{max-height:340px;overflow-y:auto}
+.combo .sugg button{font-size:.92rem;padding:8px 12px}
+.combo .sugg .empty{padding:10px 12px}
