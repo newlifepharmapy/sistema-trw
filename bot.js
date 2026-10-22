@@ -71,7 +71,7 @@ const hasLogin = async () => (await pool.query(`select 1 from bot_auth where k='
 async function rateMessage() {
   const s = await settings();
   if (!s.cotacao) return null;
-  return `💱 *CÂMBIO DO DIA*\n\nUS$ 1,00 = *R$ ${rateTxt(s.cotacao)}*\n\n_Atualizado em ${ddmm()} às ${hhmm()}_`;
+  return `💱 A taxa atual é: R$ ${rateTxt(s.cotacao)}`;
 }
 // same layout as the "Tabela WhatsApp" tab: Paraguay in dollars, São Paulo in reais, only what is in stock there
 async function tableMessage(loja) {

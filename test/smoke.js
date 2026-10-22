@@ -203,7 +203,7 @@ function client() {
   assert(bot.command('Tabela SP') === 'SP' && bot.command('  tabela   py ') === 'PY' && bot.command('tabela São Paulo') === 'SP' && bot.command('quero a tabela sp') === null, 'bot entende tabela sp e tabela py');
   assert((await ana('/api/bot')).status === 200 && (await ana('/api/bot')).data.status === 'desconectado', 'bot começa desconectado');
   const pv = (await adm('/api/bot/previa/SP')).data, pp = (await adm('/api/bot/previa/PY')).data;
-  assert(/CÂMBIO DO DIA/.test(pv.cambio) && /SÃO PAULO · R\$/.test(pv.tabela) && /PARAGUAY · US\$/.test(pp.tabela), 'prévia do câmbio e das tabelas');
+  assert(/^💱 A taxa atual é: R\$ [\d,]+$/.test(pv.cambio) && /SÃO PAULO · R\$/.test(pv.tabela) && /PARAGUAY · US\$/.test(pp.tabela), 'prévia do câmbio e das tabelas');
   assert((await adm('/api/bot/config', 'POST', { ativo: true, grupo: '', intervalo: 30 })).status === 400, 'ligar o envio exige grupo');
   assert((await adm('/api/bot/config', 'POST', { ativo: true, grupo: '120363000000000000@g.us', grupoNome: 'Clientes', intervalo: 30 })).status === 200, 'grupo e intervalo salvos');
   assert((await adm('/api/bot')).data.config.grupoNome === 'Clientes', 'configuração do bot guardada');
