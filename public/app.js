@@ -701,15 +701,29 @@ function renderStore(l) {
   const f = $('#sf-' + l).value.trim().toLowerCase();
   const L = S.products.filter(p => matchP(p, f) && gmMatch(p, $('#sg-g-' + l), $('#sg-m-' + l)) && (view === 'todos' || (view === 'com' ? qty(p) > 0 : qty(p) <= 0))).sort((a, b) => qty(b) - qty(a) || a.nome.localeCompare(b.nome));
   const tot = fn => L.reduce((a, p) => a + Math.max(0, qty(p)) * fn(p), 0);
+  // a price being typed must not be wiped by a refresh from another computer
+  if ($('#sl-' + l).contains(document.activeElement) && document.activeElement.matches('input[data-pr]')) return;
+  const own = p => l === 'PY' ? +p.precoUsd || 0 : +p.precoBrl || 0;
+  const priceCell = p => can('produtos') ? `<input class="prin num" type="number" min="0" step="0.01" value="${own(p) || ''}" placeholder="${l === 'SP' && price(p) ? nNum(price(p)) : '0,00'}" data-pr="${p.id}" data-l="${l}" aria-label="Preço de venda em ${cur === 'USD' ? 'dólar' : 'reais'}">` : fm(price(p), cur);
   $('#sl-' + l).innerHTML = L.length ? `<table><thead><tr><th>Código</th><th>Produto</th><th>Marca</th><th>Lote</th><th>Validade</th><th>Fornecedor</th><th class="r">Qtd</th><th class="r">Custo un.</th><th class="r">Custo total</th><th class="r">Preço un.</th><th class="r">Valor de venda</th></tr></thead><tbody>${groupedRows(L, 11, p => `<tr><td class="num">${esc(p.codigo || '')}</td><td>${esc(p.nome)}</td><td>${esc(p.marca || '—')}</td>${lotCells(p, l)}
       <td class="r"><span class="pill num ${qty(p) <= 0 ? 'bad' : qty(p) <= 3 ? 'warn' : ''}">${nf0(qty(p))}</span></td>
       <td class="r num">${fm(+p.custo || 0, 'USD')}<div class="hint">${fm(costIn(p, 'BRL'), 'BRL')}</div></td>
       <td class="r num">${fm(Math.max(0, qty(p)) * (+p.custo || 0), 'USD')}</td>
-      <td class="r num">${fm(price(p), cur)}<div class="hint">${fm(conv(price(p), cur, o), o)}</div></td>
+      <td class="r num">${priceCell(p)}<div class="hint">${fm(conv(price(p), cur, o), o)}</div></td>
       <td class="r num"><b>${fm(Math.max(0, qty(p)) * price(p), cur)}</b><div class="hint">${fm(conv(Math.max(0, qty(p)) * price(p), cur, o), o)}</div></td></tr>`, a => nf0(a.reduce((x, p) => x + Math.max(0, qty(p)), 0)) + ' un. · ' + fm(a.reduce((x, p) => x + Math.max(0, qty(p)) * price(p), 0), cur))}</tbody>
       <tfoot><tr><td></td><td>Total</td><td></td><td></td><td></td><td></td><td class="r num">${nf0(L.reduce((a, p) => a + Math.max(0, qty(p)), 0))}</td><td></td><td class="r num">${fm(tot(p => +p.custo || 0), 'USD')}</td><td></td><td class="r num">${fm(tot(price), cur)}</td></tr></tfoot></table>`
     : `<div class="empty">${S.products.length ? 'Nenhum produto neste filtro.' : 'Nenhum produto cadastrado ainda.'}</div>`;
 }
+
+// saving a price typed in the stock list: on Enter or when leaving the field
+document.addEventListener('change', async e => {
+  const i = e.target.closest('input[data-pr]'); if (!i) return;
+  const p = S.products.find(x => x.id === +i.dataset.pr), l = i.dataset.l, v = Math.max(0, +i.value || 0);
+  if (!p || v === (l === 'PY' ? +p.precoUsd || 0 : +p.precoBrl || 0)) return;
+  const ok = await act(() => api(`/products/${p.id}/preco`, 'PUT', { loja: l, valor: v }), `Preço de ${p.nome} salvo.`);
+  if (ok) { if (l === 'PY') p.precoUsd = v; else p.precoBrl = v; i.blur(); renderStore(l); }
+});
+document.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.matches('input[data-pr]')) e.target.blur(); });
 
 /* ---------- products ---------- */
 let editP = null;

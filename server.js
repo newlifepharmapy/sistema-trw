@@ -371,6 +371,15 @@ app.put('/api/products/:id', auth, need('produtos'), h(async (req, res) => {
   });
   bump(); res.json({ ok: true });
 }));
+// the sale price typed straight in a store's stock list: Paraguay sells in dollars, São Paulo in reais
+// (an empty São Paulo price goes back to the dollar price at the current rate)
+app.put('/api/products/:id/preco', auth, need('produtos'), h(async (req, res) => {
+  const loja = LOJAS.includes(req.body.loja) ? req.body.loja : bad('Loja inválida.');
+  const valor = r2(Math.max(0, num(req.body.valor)));
+  const r = await pool.query(`update products set ${loja === 'PY' ? 'preco_usd' : 'preco_brl'}=$1 where id=$2 and ativo`, [valor, +req.params.id]);
+  if (!r.rowCount) bad('Produto não encontrado.');
+  bump(); res.json({ ok: true });
+}));
 app.delete('/api/products/:id', auth, need('produtos'), h(async (req, res) => {
   await pool.query('update products set ativo=false where id=$1', [+req.params.id]);
   bump(); res.json({ ok: true });

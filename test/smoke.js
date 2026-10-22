@@ -223,5 +223,9 @@ function client() {
   await adm(`/api/sales/${vs.id}/cancel`, 'POST', {});
   epd = (await adm('/api/data')).data.products.find(x => x.id === ep);
   assert(epd.estoque.PY === 10 && (await adm(`/api/sales/${vs.id}`, 'PUT', { moeda: 'USD', pagamento: 'USDT', itens: [{ pid: ep, qtd: 1, preco: 3 }] })).status === 400, 'venda editada e cancelada devolve tudo; cancelada não se edita');
+  assert((await adm(`/api/products/${ep}/preco`, 'PUT', { loja: 'PY', valor: 7.5 })).status === 200 && (await adm(`/api/products/${ep}/preco`, 'PUT', { loja: 'SP', valor: 45 })).status === 200, 'preço editado no estoque');
+  epd = (await adm('/api/data')).data.products.find(x => x.id === ep);
+  assert(+epd.precoUsd === 7.5 && +epd.precoBrl === 45, 'Paraguay grava o preço em dólar e São Paulo em reais');
+  assert((await ana(`/api/products/${ep}/preco`, 'PUT', { loja: 'PY', valor: 1 })).status === 403, 'editar preço exige a permissão de produtos');
   console.log('\nTodos os testes passaram.');
 })().catch(e => { console.error(e); process.exit(1); });
