@@ -692,15 +692,25 @@ async function loadCli(id) {
 }
 document.addEventListener('click', async e => {
   const v = e.target.closest('[data-cview]'), ed = e.target.closest('[data-cedit]'), off = e.target.closest('[data-coff]');
-  if (v) { S.cliView = +v.dataset.cview; S.cliData = null; $('#cDetail').hidden = false; $('#cDetail').innerHTML = '<div class="empty">Carregando…</div>'; $('#cDetail').scrollIntoView({ behavior: 'smooth' }); loadCli(S.cliView); }
+  // Ficha opens the customer card; clicking it again on the same customer closes it
+  if (v) {
+    S.moveEdit = null;
+    if (S.cliView === +v.dataset.cview) { S.cliView = null; S.cliData = null; $('#cDetail').hidden = true; $('#cDetail').innerHTML = ''; renderCli(); return; }
+    S.cliView = +v.dataset.cview; S.cliData = null; $('#cDetail').hidden = false; $('#cDetail').innerHTML = '<div class="empty">Carregando…</div>'; renderCli(); $('#cDetail').scrollIntoView({ behavior: 'smooth' }); loadCli(S.cliView);
+  }
   if (ed) { const c = S.customers.find(x => x.id === +ed.dataset.cedit); S.cliEdit = c?.id || null; cliForm(c); renderCli(); $('#cTitle').scrollIntoView({ behavior: 'smooth' }); }
-  if (off) { if (!armed(off, 'Confirmar', 'Desativar cliente')) return; off.disabled = true; if (await act(() => api('/customers/' + off.dataset.coff, 'DELETE'), 'Cliente desativado. As vendas dele continuam no histórico.')) { S.cliView = null; S.cliData = null; renderCli(); } }
+  if (off) { if (!armed(off, 'Confirmar', 'Desativar cliente')) return; off.disabled = true; if (await act(() => api('/customers/' + off.dataset.coff, 'DELETE', {}), 'Cliente desativado. As vendas dele continuam no histórico.')) { S.cliView = null; S.cliData = null; $('#cDetail').hidden = true; renderCli(); } }
+  const cd = e.target.closest('[data-cdel]'); if (cd) { if (!armed(cd, 'Apagar de vez?', 'Excluir cliente')) return; cd.disabled = true; if (await act(() => api(`/customers/${cd.dataset.cdel}/definitivo`, 'DELETE', {}), 'Cliente excluído. As vendas dele continuam no histórico.')) { S.cliView = null; S.cliData = null; S.moveEdit = null; $('#cDetail').hidden = true; renderCli(); } }
+  const me = e.target.closest('[data-medit]'); if (me) { S.moveEdit = +me.dataset.medit; renderCliDetail(); $('#mTitle').scrollIntoView({ behavior: 'smooth' }); $('#mVal').focus(); }
+  if (e.target.closest('#mEditCancel')) { S.moveEdit = null; renderCliDetail(); }
+  const md = e.target.closest('[data-mdel]'); if (md) { if (!armed(md, 'Apagar de vez?', 'Excluir')) return; md.disabled = true; if (S.moveEdit === +md.dataset.mdel) S.moveEdit = null; await act(() => api(`/customer-moves/${md.dataset.mdel}`, 'DELETE', {}), 'Lançamento excluído da conta.'); }
   const mc = e.target.closest('[data-mcancel]'); if (mc) { if (!armed(mc, 'Confirmar', 'Cancelar')) return; mc.disabled = true; await act(() => api(`/customer-moves/${mc.dataset.mcancel}/cancel`, 'POST', {}), 'Lançamento cancelado.'); }
   const sd = e.target.closest('[data-sdeb]'); if (sd) { const x = S.cliData?.sales.find(y => y.id === +sd.dataset.sdeb); if (x) { sd.disabled = true; await act(() => api(`/customers/${S.cliView}/moves`, 'POST', { tipo: 'debito', moeda: x.moeda, valor: +x.total, vendaId: x.id, descricao: `Venda nº ${x.id} a prazo` }), 'Venda lançada no débito do cliente.'); } }
   const sp = e.target.closest('[data-sprint]'); if (sp) printNota(S.cliData?.sales.find(y => y.id === +sp.dataset.sprint));
   if (e.target.closest('#mAdd')) {
     const body = { tipo: $('#mTipo').value, moeda: $('#mCur').value, valor: +$('#mVal').value, descricao: $('#mDesc').value, data: $('#mData').value };
     if (!(body.valor > 0)) return toast('Informe o valor.', true);
+    if (S.moveEdit) { const id = S.moveEdit; if (await act(() => api(`/customer-moves/${id}`, 'PUT', body), 'Lançamento alterado.')) S.moveEdit = null; return; }
     if (await act(() => api(`/customers/${S.cliView}/moves`, 'POST', body), body.tipo === 'credito' ? 'Crédito lançado.' : 'Débito lançado.')) { $('#mVal').value = ''; $('#mDesc').value = ''; }
   }
 });
@@ -708,7 +718,7 @@ function renderCli() {
   const f = $('#cFind').value.trim().toLowerCase();
   const L = S.customers.filter(c => !f || [c.nome, c.telefone, c.cidade].some(x => (x || '').toLowerCase().includes(f)));
   $('#cTitle').textContent = S.cliEdit ? 'Editar cliente' : 'Novo cliente'; $('#cEditCancel').hidden = !S.cliEdit; $('#cSave').textContent = S.cliEdit ? 'Salvar alterações' : 'Cadastrar cliente';
-  $('#cList').innerHTML = L.length ? `<table><thead><tr><th>Nome</th><th>Telefone</th><th>Cidade</th><th>Observação</th><th class="r">Saldo</th><th></th></tr></thead><tbody>${L.map(c => `<tr><td><b>${esc(c.nome)}</b></td><td class="num">${esc(c.telefone || '—')}</td><td>${esc(c.cidade || '—')}</td><td class="hint">${esc(c.obs || '')}</td><td class="r num">${balCell(c.saldoUsd, c.saldoBrl)}</td><td class="r" style="white-space:nowrap"><button class="btn small primary" data-cview="${c.id}">Ficha</button> <button class="btn small" data-cedit="${c.id}">Editar</button></td></tr>`).join('')}</tbody></table>`
+  $('#cList').innerHTML = L.length ? `<table><thead><tr><th>Nome</th><th>Telefone</th><th>Cidade</th><th>Observação</th><th class="r">Saldo</th><th></th></tr></thead><tbody>${L.map(c => `<tr><td><b>${esc(c.nome)}</b></td><td class="num">${esc(c.telefone || '—')}</td><td>${esc(c.cidade || '—')}</td><td class="hint">${esc(c.obs || '')}</td><td class="r num">${balCell(c.saldoUsd, c.saldoBrl)}</td><td class="r" style="white-space:nowrap"><button class="btn small ${S.cliView === c.id ? '' : 'primary'}" data-cview="${c.id}" title="${S.cliView === c.id ? 'Clique para fechar a ficha' : 'Abrir a ficha do cliente'}">${S.cliView === c.id ? 'Fechar ficha' : 'Ficha'}</button> <button class="btn small" data-cedit="${c.id}">Editar</button></td></tr>`).join('')}</tbody></table>`
     : `<div class="empty">${S.customers.length ? 'Nenhum cliente nesta busca.' : 'Nenhum cliente cadastrado ainda. Cadastre acima.'}</div>`;
   // the open customer card follows changes made on any computer, but not while something is being typed in it
   if ($('#cDetail').contains(document.activeElement) && document.activeElement.matches('input, select')) return;
@@ -719,22 +729,25 @@ function renderCliDetail() {
   const { customer: c, sales, quotes, moves } = S.cliData, cs = S.customers.find(x => x.id === c.id) || {};
   const ok = sales.filter(x => !x.cancelada), totU = ok.reduce((a, x) => a + (saleIn(x, 'USD') || 0), 0), totB = ok.reduce((a, x) => a + (saleIn(x, 'BRL') || 0), 0);
   const debited = new Set(moves.filter(m => !m.cancelado && m.vendaId).map(m => m.vendaId));
+  const em = S.moveEdit && moves.find(m => m.id === S.moveEdit && !m.cancelado); if (!em) S.moveEdit = null;
+  const sel = (a, b) => a === b ? ' selected' : '';
   const k = (label, v, sub) => `<div class="kpi"><span class="lbl">${label}</span><span class="v">${v}</span><span class="s">${sub}</span></div>`;
   $('#cDetail').innerHTML = `
-    <div class="row between"><h2>${esc(c.nome)}</h2><div class="row" style="gap:8px"><span class="hint">${esc([c.telefone, c.cidade].filter(Boolean).join(' · '))}</span><button class="btn small danger" data-coff="${c.id}">Desativar cliente</button></div></div>
+    <div class="row between"><h2>${esc(c.nome)}</h2><div class="row" style="gap:8px"><span class="hint">${esc([c.telefone, c.cidade].filter(Boolean).join(' · '))}</span><button class="btn small danger" data-coff="${c.id}">Desativar cliente</button>${can('excluir') ? ` <button class="btn small danger" data-cdel="${c.id}" title="Apaga o cliente e a conta dele de vez; as vendas continuam no histórico">Excluir cliente</button>` : ''}</div></div>
     ${c.obs ? `<p class="hint">${esc(c.obs)}</p>` : ''}
     <div class="kpis" style="margin:12px 0">${k('Saldo da conta', balCell(cs.saldoUsd, cs.saldoBrl), 'créditos menos débitos')}${k('Total comprado', fm(totU, 'USD'), fm(totB, 'BRL'))}${k('Compras', ok.length, ok[0] ? 'última em ' + fDate(ok[0].data) : 'nenhuma ainda')}${k('Orçamentos', quotes.length, quotes.filter(q => q.status === 'aberto').length + ' em aberto')}</div>
-    <h3>Lançar na conta</h3>
+    <h3 id="mTitle">${em ? `Editar lançamento de ${fDate(em.data)}` : 'Lançar na conta'}</h3>
+    ${em ? `<div class="editbar">Editando um lançamento. O câmbio continua o do dia em que foi lançado (${fRate(em.cotacao)}).</div>` : ''}
     <div class="fields mvform">
-      <label class="field"><span class="lbl">Tipo</span><select id="mTipo"><option value="debito">Débito (o cliente deve)</option><option value="credito">Crédito (o cliente pagou ou adiantou)</option></select></label>
-      <label class="field"><span class="lbl">Moeda</span><select id="mCur"><option value="USD">Dólar (US$)</option><option value="BRL">Real (R$)</option></select></label>
-      <label class="field"><span class="lbl">Valor</span><input type="number" id="mVal" min="0" step="0.01"></label>
-      <label class="field"><span class="lbl">Data</span><input type="date" id="mData" value="${today()}"></label>
-      <label class="field"><span class="lbl">Descrição</span><input type="text" id="mDesc" maxlength="300" placeholder="Ex.: pagamento via PIX"></label>
-      <div class="field end"><button class="btn primary" id="mAdd">Lançar</button></div>
+      <label class="field"><span class="lbl">Tipo</span><select id="mTipo"><option value="debito">Débito (o cliente deve)</option><option value="credito"${sel(em?.tipo, 'credito')}>Crédito (o cliente pagou ou adiantou)</option></select></label>
+      <label class="field"><span class="lbl">Moeda</span><select id="mCur"><option value="USD">Dólar (US$)</option><option value="BRL"${sel(em?.moeda, 'BRL')}>Real (R$)</option></select></label>
+      <label class="field"><span class="lbl">Valor</span><input type="number" id="mVal" min="0" step="0.01" value="${em ? +em.valor : ''}"></label>
+      <label class="field"><span class="lbl">Data</span><input type="date" id="mData" value="${em ? String(em.data).slice(0, 10) : today()}"></label>
+      <label class="field"><span class="lbl">Descrição</span><input type="text" id="mDesc" maxlength="300" placeholder="Ex.: pagamento via PIX" value="${em ? esc(em.descricao || '') : ''}"></label>
+      <div class="field end row" style="gap:6px"><button class="btn primary" id="mAdd">${em ? 'Salvar alteração' : 'Lançar'}</button>${em ? '<button class="btn" id="mEditCancel">Cancelar edição</button>' : ''}</div>
     </div>
     <h3>Conta corrente</h3>
-    <div class="tablewrap">${moves.length ? `<table><thead><tr><th>Data</th><th>Tipo</th><th>Descrição</th><th class="r">Valor</th><th>Lançado por</th><th></th></tr></thead><tbody>${moves.map(m => `<tr class="${m.cancelado ? 'cancel' : ''}"><td class="num">${fDate(m.data)}</td><td>${m.tipo === 'credito' ? '<span class="pill ok">crédito</span>' : '<span class="pill bad">débito</span>'}</td><td>${esc(m.descricao || '—')}${m.vendaId ? ` <span class="hint">venda nº ${m.vendaId}</span>` : ''}</td><td class="r num"><b class="${m.tipo === 'credito' ? 'pos' : 'neg'}">${m.tipo === 'credito' ? '+' : '−'} ${fm(+m.valor, m.moeda)}</b><div class="hint">câmbio ${fRate(m.cotacao)}</div></td><td>${esc(m.criadoPor)}</td><td class="r">${m.cancelado ? '<span class="pill bad">cancelado</span>' : `<button class="btn small danger" data-mcancel="${m.id}">Cancelar</button>`}</td></tr>`).join('')}</tbody></table>` : '<div class="empty">Nenhum crédito ou débito lançado.</div>'}</div>
+    <div class="tablewrap">${moves.length ? `<table><thead><tr><th>Data</th><th>Tipo</th><th>Descrição</th><th class="r">Valor</th><th>Lançado por</th><th></th></tr></thead><tbody>${moves.map(m => `<tr class="${m.cancelado ? 'cancel' : ''}"><td class="num">${fDate(m.data)}</td><td>${m.tipo === 'credito' ? '<span class="pill ok">crédito</span>' : '<span class="pill bad">débito</span>'}</td><td>${esc(m.descricao || '—')}${m.vendaId ? ` <span class="hint">venda nº ${m.vendaId}</span>` : ''}</td><td class="r num"><b class="${m.tipo === 'credito' ? 'pos' : 'neg'}">${m.tipo === 'credito' ? '+' : '−'} ${fm(+m.valor, m.moeda)}</b><div class="hint">câmbio ${fRate(m.cotacao)}</div></td><td>${esc(m.criadoPor)}</td><td class="r" style="white-space:nowrap">${m.cancelado ? '<span class="pill bad">cancelado</span>' : `<button class="btn small" data-medit="${m.id}">Editar</button> <button class="btn small danger" data-mcancel="${m.id}">Cancelar</button>`}${can('excluir') ? ` <button class="btn small danger" data-mdel="${m.id}" title="Apaga o lançamento de vez">Excluir</button>` : ''}</td></tr>`).join('')}</tbody></table>` : '<div class="empty">Nenhum crédito ou débito lançado.</div>'}</div>
     <h3>Compras</h3>
     <div class="tablewrap">${sales.length ? `<table><thead><tr><th>Data</th><th>Loja</th><th>Itens</th><th>Pagamento</th><th class="r">Valor</th>${can('lucro') ? '<th class="r">Lucro</th>' : ''}<th></th></tr></thead><tbody>${sales.map(x => { const o = x.moeda === 'USD' ? 'BRL' : 'USD';
       return `<tr class="${x.cancelada ? 'cancel' : ''}"><td class="num">${fDate(x.data)}<div class="hint">nº ${x.id}</div></td><td><span class="pill ${x.loja.toLowerCase()}">${x.loja}</span></td><td style="min-width:260px">${itemLines(x.itens, x.moeda, can('lucro') ? itemProfit(x) : null)}</td><td>${esc(x.pagamento)}</td><td class="r num"><b>${fm(x.total, x.moeda)}</b><div class="hint">${fm(saleIn(x, o), o)}</div></td>${can('lucro') ? profitCell(x) : ''}

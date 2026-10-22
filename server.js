@@ -423,6 +423,17 @@ app.delete('/api/customers/:id', auth, need('clientes'), h(async (req, res) => {
   await pool.query('update customers set ativo=false where id=$1', [+req.params.id]);
   bump(); res.json({ ok: true });
 }));
+// deleting for good removes the customer and the account; sales and quotes stay with the typed name, unlinked
+app.delete('/api/customers/:id/definitivo', auth, need('excluir'), h(async (req, res) => {
+  const id = +req.params.id;
+  await tx(async c => {
+    await c.query('update sales set cliente_id=null where cliente_id=$1', [id]);
+    await c.query('update quotes set cliente_id=null where cliente_id=$1', [id]);
+    const r = await c.query('delete from customers where id=$1', [id]);
+    if (!r.rowCount) bad('Cliente não encontrado.');
+  });
+  bump(); res.json({ ok: true });
+}));
 app.get('/api/customers/:id', auth, need('clientes'), h(async (req, res) => {
   const id = +req.params.id;
   const [cu, sa, qu, mv] = await Promise.all([
@@ -461,6 +472,22 @@ app.post('/api/customers/:id/moves', auth, need('clientes'), h(async (req, res) 
 app.post('/api/customer-moves/:id/cancel', auth, need('clientes'), h(async (req, res) => {
   const r = await pool.query('update customer_moves set cancelado=true, cancelado_por=$1, cancelado_em=$2 where id=$3 and not cancelado', [req.user.nome, Date.now(), +req.params.id]);
   if (!r.rowCount) bad('Lançamento não encontrado ou já cancelado.');
+  bump(); res.json({ ok: true });
+}));
+// editing keeps the move's own rate, so the converted value stays the one of the day it was made
+app.put('/api/customer-moves/:id', auth, need('clientes'), h(async (req, res) => {
+  const b = req.body;
+  const tipo = ['credito', 'debito'].includes(b.tipo) ? b.tipo : bad('Escolha crédito ou débito.');
+  const moeda = MOEDAS.includes(b.moeda) ? b.moeda : bad('Moeda inválida.');
+  const valor = r2(num(b.valor)); if (!(valor > 0)) bad('Informe o valor.');
+  const r = await pool.query('update customer_moves set tipo=$1, moeda=$2, valor=$3, descricao=$4, data=coalesce($5, data) where id=$6 and not cancelado',
+    [tipo, moeda, valor, str(b.descricao, 300), isDate(b.data) ? b.data : null, +req.params.id]);
+  if (!r.rowCount) bad('Lançamento não encontrado ou cancelado.');
+  bump(); res.json({ ok: true });
+}));
+app.delete('/api/customer-moves/:id', auth, need('excluir'), h(async (req, res) => {
+  const r = await pool.query('delete from customer_moves where id=$1', [+req.params.id]);
+  if (!r.rowCount) bad('Lançamento não encontrado.');
   bump(); res.json({ ok: true });
 }));
 
