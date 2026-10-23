@@ -471,6 +471,7 @@
       <button class="btn primary" id="donePrint">Imprimir nota</button>
       <button class="btn wa" id="doneWa">Enviar pelo WhatsApp</button>
     </div>
+    <label class="check done-lote"><input type="checkbox" id="doneLote"> Lote e validade na nota</label>
     <button class="btn ghost" id="doneClose">Não, obrigado</button>
     <div class="hint">Atalhos: <span class="kbd">1</span> imprime · <span class="kbd">2</span> WhatsApp · <span class="kbd">Esc</span> fecha</div>
   </div>
@@ -481,6 +482,7 @@
   <div class="card modal-card wa-card">
     <h2>Enviar nota pelo WhatsApp</h2>
     <img id="waImg" alt="Imagem da nota">
+    <label class="check"><input type="checkbox" id="waLote"> Lote e validade na nota</label>
     <label class="field"><span class="lbl">WhatsApp do cliente (com código do país)</span><input type="tel" id="waPhone" placeholder="ex.: 595981123456 ou 5511987654321"></label>
     <div class="row actions wrap">
       <button class="btn primary" id="waGo">Copiar imagem e abrir WhatsApp</button>

@@ -957,6 +957,9 @@ const center = t => { t = ascii(t).slice(0, NW); return ' '.repeat(Math.floor((N
 const wrap = (t, n) => { const out = []; let line = ''; ascii(t).split(/\s+/).forEach(w => { if ((line + ' ' + w).trim().length > n) { if (line) out.push(line); line = w.slice(0, n); } else line = (line + ' ' + w).trim(); }); if (line) out.push(line); return out; };
 const nNum = (v, d = 2) => (+v || 0).toLocaleString('pt-BR', { minimumFractionDigits: d, maximumFractionDigits: d });
 const nMoney = (v, cur) => (cur === 'BRL' ? 'R$ ' : 'US$ ') + nNum(v);
+// lot and expiry on the note are optional; the choice is remembered on this computer and used by every print and image
+const notaLote = () => ls.get('trw_nota_lote') !== '0';
+const setNotaLote = on => { ls.set('trw_nota_lote', on ? '1' : '0'); $('#doneLote').checked = $('#waLote').checked = on; };
 function notaText(s) {
   const cfg = (S.settings?.nota || {})[s.loja] || {}, L = [], sep = '-'.repeat(NW), dbl = '='.repeat(NW);
   const o = s.moeda === 'USD' ? 'BRL' : 'USD';
@@ -972,10 +975,17 @@ function notaText(s) {
   if (orc && s.validadeOrc) L.push(padR('Valido ate: ' + fDate(s.validadeOrc), NW));
   if (s.cancelada) L.push(center(orc ? '*** ORCAMENTO CANCELADO ***' : '*** VENDA CANCELADA ***'));
   L.push(sep);
-  // Qtd(5) Descricao(25) Lote(9) Venc(7) Unit(9) Total(10), one space between columns
-  L.push(padL('Qtd', 5) + ' ' + padR('Descricao', 25) + ' ' + padR('Lote', 9) + ' ' + padR('Venc.', 7) + ' ' + padL('Unit.', 9) + ' ' + padL('Total', 10));
+  // Qtd(5) Descricao(25) Lote(9) Venc(7) Unit(9) Total(10), one space between columns;
+  // without the lot, the description takes the lot and expiry columns and lines of one product at one price join
+  const lot = notaLote(), dw = lot ? 25 : 43;
+  if (lot) L.push(padL('Qtd', 5) + ' ' + padR('Descricao', 25) + ' ' + padR('Lote', 9) + ' ' + padR('Venc.', 7) + ' ' + padL('Unit.', 9) + ' ' + padL('Total', 10));
+  else L.push(padL('Qtd', 5) + ' ' + padR('Descricao', dw) + ' ' + padL('Unit.', 9) + ' ' + padL('Total', 10));
   L.push(sep);
-  (s.itens || []).forEach(i => {
+  const itens = lot ? (s.itens || []) : (s.itens || []).reduce((a, i) => { const e = a.find(x => (i.pid ? x.pid === i.pid : x.nome === i.nome) && x.preco === i.preco); if (e) e.qtd += i.qtd; else a.push({ ...i }); return a; }, []);
+  if (!lot) itens.forEach(i => { const desc = wrap(i.nome, dw);
+    L.push(padL(nNum(i.qtd, i.qtd % 1 ? 2 : 0), 5) + ' ' + padR(desc[0] || '', dw) + ' ' + padL(nNum(i.preco), 9) + ' ' + padL(nNum(i.qtd * i.preco), 10));
+    desc.slice(1).forEach(x => L.push(' '.repeat(6) + x)); });
+  else itens.forEach(i => {
     const venc = fVal(i.validade);
     const desc = wrap(i.nome, 25);
     L.push(padL(nNum(i.qtd, i.qtd % 1 ? 2 : 0), 5) + ' ' + padR(desc[0] || '', 25) + ' ' + padR(i.lote || '', 9) + ' ' + padR(venc, 7) + ' ' + padL(nNum(i.preco), 9) + ' ' + padL(nNum(i.qtd * i.preco), 10));
@@ -1054,12 +1064,15 @@ function askDoc(doc, after) {
   doneDoc = doc; doneAfter = after || null;
   $('#doneTitle').textContent = doc.kind === 'compra' ? 'Entrada registrada' : doc.kind === 'orcamento' ? 'Orçamento salvo' : 'Venda registrada';
   $('#doneTotal').textContent = fm(doc.total, doc.moeda);
+  $('#doneLote').checked = notaLote();
   $('#doneModal').hidden = false; $('#donePrint').focus();
 }
 function closeDone() { $('#doneModal').hidden = true; const f = doneAfter; doneAfter = null; if (f) setTimeout(f, 30); }
 $('#donePrint').onclick = () => { const d = doneDoc; closeDone(); printNota(d); };
 $('#doneWa').onclick = () => { const d = doneDoc; $('#doneModal').hidden = true; doneAfter = null; openWa(d); };
 $('#doneClose').onclick = closeDone;
+$('#doneLote').onchange = e => setNotaLote(e.target.checked);
+$('#waLote').onchange = async e => { setNotaLote(e.target.checked); if (waSale) { waPic = await notaImage(waSale); $('#waImg').src = waPic.url; } };
 document.addEventListener('keydown', e => {
   if (!$('#doneModal').hidden) {
     if (e.key === 'Escape') { e.preventDefault(); closeDone(); } else if (e.key === '1') { e.preventDefault(); $('#donePrint').click(); } else if (e.key === '2') { e.preventDefault(); $('#doneWa').click(); }
@@ -1081,7 +1094,7 @@ let waSale = null, waPic = null;
 const waName = s => `${s.kind === 'compra' ? 'entrada' : s.kind === 'orcamento' ? 'orcamento' : 'nota'}-${String(s.id).padStart(6, '0')}.png`;
 async function openWa(s) {
   if (!s) return;
-  waSale = s; waPic = await notaImage(s);
+  waSale = s; $('#waLote').checked = notaLote(); waPic = await notaImage(s);
   $('#waImg').src = waPic.url;
   $('#waPhone').value = s.kind === 'compra' ? '' : intlPhone(s.cliente, s.loja);
   const file = new File([waPic.blob], waName(s), { type: 'image/png' });
