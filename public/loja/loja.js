@@ -4,7 +4,6 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 const ls = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
 const money = (v, cur) => (cur === 'USD' ? 'US$ ' : 'R$ ') + (+v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const FLAG = { PY: 'flag-py.svg', SP: 'flag-br.svg' };
-const initials = s => String(s || '').replace(/[^\p{L}\p{N} ]/gu, ' ').trim().split(/\s+/).slice(0, 2).map(w => w[0]).join('').toUpperCase() || '•';
 const norm = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 
 const S = { data: null, loja: ls.get('loja_store') || '', grupo: '', cart: {}, step: 'cart', pay: '', open: null };
@@ -27,7 +26,7 @@ async function api(path, body) {
 
 function media(p, big) {
   return p.foto ? `<img src="/loja/foto/${p.id}?v=${p.foto}" alt="${esc(p.nome)}" loading="${big ? 'eager' : 'lazy'}" decoding="async">`
-    : `<div class="ph" aria-hidden="true"><b>${esc(initials(p.marca || p.nome))}</b><span>${esc(p.grupo || p.marca || '')}</span></div>`;
+    : `<div class="ph" aria-hidden="true"><i></i><span>${esc(p.grupo || '')}</span></div>`;
 }
 const stepIn = (p, q, k) => `<button type="button" data-d="-1" aria-label="Diminuir" ${k === 'p' && q <= 1 ? 'disabled' : ''}>−</button><input type="number" inputmode="numeric" value="${q}" min="${k === 'p' ? 1 : 0}" max="${p.max}" aria-label="Quantidade"><button type="button" data-d="1" aria-label="Aumentar" ${q >= p.max ? 'disabled' : ''}>+</button>`;
 const stepper = (p, q, k) => `<div class="step" data-step="${p.id}" data-k="${k}">${stepIn(p, q, k)}</div>`;
@@ -60,11 +59,9 @@ function fitCart() {
 }
 function renderShell() {
   const d = S.data;
-  document.title = d.nome + ' · Loja online';
-  $('#brandName').textContent = d.nome; $('#brandMark').textContent = initials(d.nome).slice(0, 1);
+  document.title = (d.nome || 'New Life Pharma') + ' · Loja online';
   $('#heroTitle').textContent = d.slogan;
   $('#heroEyebrow').textContent = d.loja ? `Catálogo online · ${d.lojas.find(l => l.id === d.loja)?.nome || ''}` : 'Catálogo online';
-  $('#footName').textContent = d.nome;
   $('#footAbout').textContent = d.sobre || 'Monte seu pedido no site e confirme com a nossa equipe pelo WhatsApp.';
   $('#footContact').innerHTML = d.lojas.filter(l => l.whatsapp).map(l => `<a href="https://wa.me/${l.whatsapp}" target="_blank" rel="noopener"><img src="${FLAG[l.id]}" alt="">WhatsApp ${esc(l.nome)}</a>`).join('');
   $('#storeSw').hidden = d.lojas.length < 2;

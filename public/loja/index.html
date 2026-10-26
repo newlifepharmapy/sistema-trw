@@ -3,9 +3,17 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Loja</title>
+<title>New Life Pharma</title>
 <meta name="description" content="Catálogo online com estoque atualizado. Faça seu pedido e confirme pelo WhatsApp.">
-<meta name="theme-color" content="#faf8f5">
+<meta name="theme-color" content="#f6f1ea">
+<link rel="icon" href="marca/simbolo.svg" type="image/svg+xml">
+<link rel="icon" href="marca/favicon-32.png" type="image/png" sizes="32x32">
+<link rel="apple-touch-icon" href="marca/icone-180.png">
+<link rel="manifest" href="loja.webmanifest">
+<meta property="og:title" content="New Life Pharma">
+<meta property="og:description" content="Catálogo online com estoque atualizado. Faça seu pedido e confirme pelo WhatsApp.">
+<meta property="og:image" content="marca/compartilhar.jpg">
+<meta property="og:type" content="website">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600&display=swap">
@@ -14,7 +22,7 @@
 <body>
 <header class="top">
   <div class="wrap top-in">
-    <a class="brand" href="#" id="brand"><span class="brand-mark" id="brandMark"></span><span id="brandName"></span></a>
+    <a class="brand" href="#" id="brand"><img src="marca/logo.svg" alt="New Life Pharma" width="181" height="42" id="brandLogo"></a>
     <label class="search" id="searchBox"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg><input type="search" id="q" placeholder="Buscar produto ou marca" autocomplete="off" aria-label="Buscar"></label>
     <div class="store" id="storeSw" role="group" aria-label="Loja"></div>
     <button class="cart-btn" id="cartBtn" aria-label="Abrir pedido"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14l-1.2 11.2a2 2 0 0 1-2 1.8H8.2a2 2 0 0 1-2-1.8z"/><path d="M9 7V6a3 3 0 0 1 6 0v1"/></svg><span class="cart-n" id="cartN" hidden>0</span></button>
@@ -49,7 +57,7 @@
 <footer class="foot">
   <div class="wrap foot-in">
     <div>
-      <div class="foot-brand" id="footName"></div>
+      <img class="foot-logo" src="marca/logo.svg" alt="New Life Pharma" width="207" height="48"><div class="foot-brand" id="footName" hidden></div>
       <p class="foot-text" id="footAbout"></p>
     </div>
     <div class="foot-contact" id="footContact"></div>

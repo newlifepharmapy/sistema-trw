@@ -11,7 +11,7 @@ module.exports = ({ app, pool, auth, need, h, bad, bump, str, num, r2, todayStr,
     const c = rows[0]?.loja || {}, nota = rows[0]?.nota || {};
     return {
       ativo: c.ativo !== false,
-      nome: c.nome || nota.PY?.empresa || nota.SP?.empresa || 'TRW',
+      nome: c.nome || 'New Life Pharma',
       slogan: c.slogan || 'Produtos com procedência, entregues com cuidado.',
       sobre: c.sobre || '',
       mostrarEstoque: !!c.mostrarEstoque,

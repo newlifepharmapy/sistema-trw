@@ -1381,12 +1381,12 @@ async function loadBot() {
 /* ---------- online shop ---------- */
 const shopUrl = () => location.origin + '/loja/';
 function renderShop() {
-  const c = S.settings?.loja || {}, nota = S.settings?.nota || {}, form = $('#pane-shop .card');
+  const c = S.settings?.loja || {}, form = $('#pane-shop .card');
   const ativo = c.ativo !== false, on = l => c.lojas?.[l]?.ativo !== false;
   $('#shState').textContent = ativo ? 'Aberta' : 'Fechada'; $('#shState').className = 'pill ' + (ativo ? 'ok' : 'bad');
   $('#shUrl').textContent = shopUrl();
   if (!form.contains(document.activeElement)) {
-    $('#shNome').value = c.nome || ''; $('#shNome').placeholder = nota.PY?.empresa || nota.SP?.empresa || 'TRW';
+    $('#shNome').value = c.nome || ''; $('#shNome').placeholder = 'New Life Pharma';
     $('#shSlogan').value = c.slogan || ''; $('#shSobre').value = c.sobre || '';
     $('#shPY').checked = on('PY'); $('#shSP').checked = on('SP'); $('#shWaPY').value = c.lojas?.PY?.whatsapp || ''; $('#shWaSP').value = c.lojas?.SP?.whatsapp || '';
     $('#shQtd').checked = !!c.mostrarEstoque; $('#shAtivo').checked = ativo;
