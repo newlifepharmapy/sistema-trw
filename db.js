@@ -232,6 +232,9 @@ alter table products add column if not exists foto_ts bigint;
 create table if not exists product_photos (product_id int primary key references products(id) on delete cascade, mime text not null, data bytea not null);
 alter table quotes add column if not exists origem text not null default 'sistema';
 alter table quotes add column if not exists contato text not null default '';
+-- categories shown as tabs in the online shop; each product belongs to at most one
+create table if not exists shop_categories (id serial primary key, nome text not null, ordem int not null default 0, ativo boolean not null default true);
+alter table products add column if not exists categoria_id int references shop_categories(id) on delete set null;
 -- one-time data changes already applied
 create table if not exists migrations (name text primary key, ts bigint not null);
 `;
@@ -253,6 +256,12 @@ async function migrate() {
   if (!(await pool.query(`select 1 from migrations where name='clientes'`)).rows.length) {
     await pool.query(`update users set permissoes = permissoes || '["clientes"]'::jsonb where papel='supervisor' and jsonb_typeof(permissoes)='array' and not permissoes ? 'clientes'`);
     await pool.query(`insert into migrations (name, ts) values ('clientes', $1) on conflict do nothing`, [Date.now()]);
+  }
+  // the shop starts with one category per product group already in use, and each product in its group's category
+  if (!(await pool.query(`select 1 from migrations where name='shop_categorias'`)).rows.length) {
+    await pool.query(`insert into shop_categories (nome, ordem) select g, row_number() over (order by g) from (select distinct trim(grupo) g from products where ativo and trim(grupo) <> '') x`);
+    await pool.query(`update products p set categoria_id = c.id from shop_categories c where p.categoria_id is null and lower(trim(p.grupo)) = lower(c.nome)`);
+    await pool.query(`insert into migrations (name, ts) values ('shop_categorias', $1) on conflict do nothing`, [Date.now()]);
   }
   // the store forms are exactly 15 cm tall (the 6 in = 15,24 cm paper made each note creep 2,4 mm onto the perforation):
   // earlier defaults move to 15 cm once

@@ -162,7 +162,7 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) chec
 function setLive(ok) { $('#live').classList.toggle('off', !ok); $('#live span').textContent = ok ? 'Online' : 'Sem conexão'; }
 async function loadData() {
   const d = await api('/data');
-  Object.assign(S, { v: d.v, settings: d.settings, historico: d.historico, products: d.products, sales: d.sales, purchases: d.purchases, imports: d.imports, users: d.users, transfers: d.transfers || [], quotes: d.quotes || [], customers: d.customers || [] });
+  Object.assign(S, { v: d.v, settings: d.settings, historico: d.historico, products: d.products, sales: d.sales, purchases: d.purchases, imports: d.imports, users: d.users, transfers: d.transfers || [], quotes: d.quotes || [], customers: d.customers || [], shopCats: d.shopCats || [] });
   S.rate = d.settings && +d.settings.cotacao || null;
   fillDatalists();
   // permissions changed by a supervisor take effect on the next refresh, without logging out
@@ -858,7 +858,8 @@ function fillP(p) {
   $('#pCode').value = p?.codigo || ''; $('#pName').value = p?.nome || ''; $('#pGrupo').value = p?.grupo || ''; $('#pMarca').value = p?.marca || '';
   $('#pCost').value = p?.custo ?? ''; $('#pPriceUsd').value = p?.precoUsd ?? ''; $('#pPriceBrl').value = p?.precoBrl || '';
   $('#pStPY').value = p ? stockOf(p, 'PY') : ''; $('#pStSP').value = p ? stockOf(p, 'SP') : '';
-  $('#pDesc').value = p?.descricao || ''; $('#pOculto').checked = !!p?.lojaOculto; pFoto = null; drawPFoto(p);
+  $('#pDesc').value = p?.descricao || ''; $('#pOculto').checked = !!p?.lojaOculto;
+  $('#pCat').innerHTML = (p ? '<option value="">Sem categoria</option>' : '<option value="">Pelo grupo do produto</option>') + (S.shopCats || []).map(c => `<option value="${c.id}">${esc(c.nome)}</option>`).join(''); $('#pCat').value = p?.categoriaId || ''; pFoto = null; drawPFoto(p);
   pLots = p ? (p.lotes || []).map(x => ({ loja: x.loja, lote: x.lote, val: fVal(x.validade), qtd: x.qtd, forn: x.fornecedor || '' })) : [];
   $('#pLotsBox').hidden = !p; drawPLots();
 }
@@ -903,6 +904,7 @@ $('#pCancel').onclick = () => fillP(null);
 $('#pSave').onclick = async () => {
   if (!$('#pName').value.trim()) return toast('Informe o nome do produto.', true);
   const doc = { codigo: $('#pCode').value, nome: $('#pName').value, grupo: $('#pGrupo').value, marca: $('#pMarca').value, custo: +$('#pCost').value || 0, precoUsd: +$('#pPriceUsd').value || 0, precoBrl: +$('#pPriceBrl').value || 0, estoque: { PY: +$('#pStPY').value || 0, SP: +$('#pStSP').value || 0 }, descricao: $('#pDesc').value, lojaOculto: $('#pOculto').checked };
+  if ($('#pCat').value || editP) doc.categoriaId = +$('#pCat').value || null;
   if (editP) {
     const badV = pLots.find(x => x.val.trim() && !monthEnd(x.val));
     if (badV) return toast('Validade de lote inválida. Use mês e ano, ex.: 08/2029.', true);
@@ -1380,30 +1382,116 @@ async function loadBot() {
 }
 /* ---------- online shop ---------- */
 const shopUrl = () => location.origin + '/loja/';
+const SH_TXT = { shNome: 'nome', shChamada: 'chamada', shSlogan: 'slogan', shSubtitulo: 'subtitulo', shSobre: 'sobre', shAviso: 'aviso', shPedidoMsg: 'pedidoMsg', shFechadaMsg: 'fechadaMsg', shInstagram: 'instagram', shEmail: 'email', shEndereco: 'endereco', shHorario: 'horario' };
+let shTab = (() => { try { return localStorage.getItem('trw_shtab') || 'cfg'; } catch (e) { return 'cfg'; } })();
+const shCats = () => S.shopCats || [];
+const catName = id => shCats().find(c => c.id === id)?.nome || '';
+// what the customer sees for a product in one store
+const shLive = (p, l) => !p.lojaOculto && stockOf(p, l) > 0 && priceFor(p, l === 'PY' ? 'USD' : 'BRL') > 0;
 function renderShop() {
-  const c = S.settings?.loja || {}, form = $('#pane-shop .card');
+  const c = S.settings?.loja || {};
   const ativo = c.ativo !== false, on = l => c.lojas?.[l]?.ativo !== false;
   $('#shState').textContent = ativo ? 'Aberta' : 'Fechada'; $('#shState').className = 'pill ' + (ativo ? 'ok' : 'bad');
-  $('#shUrl').textContent = shopUrl();
-  if (!form.contains(document.activeElement)) {
-    $('#shNome').value = c.nome || ''; $('#shNome').placeholder = 'New Life Pharma';
-    $('#shSlogan').value = c.slogan || ''; $('#shSobre').value = c.sobre || '';
+  $$('#shTabs button').forEach(b => b.setAttribute('aria-pressed', b.dataset.sh === shTab));
+  $('#shPaneCfg').hidden = shTab !== 'cfg'; $('#shPaneProd').hidden = shTab !== 'prod'; $('#shPaneCat').hidden = shTab !== 'cat';
+  const k = (cls, head, v, sub) => `<div class="kpi ${cls}"><span class="lbl">${head}</span><span class="v">${v}</span><span class="s">${sub}</span></div>`;
+  const off = S.products.filter(p => p.lojaOculto).length;
+  const open = (S.quotes || []).filter(q => q.origem === 'site' && q.status === 'aberto').length;
+  $('#shKpis').innerHTML = ['PY', 'SP'].map(l => k(l.toLowerCase(), (l === 'PY' ? FLAG_PY : FLAG_BR) + ` À venda · ${LOJAS[l].nome}`, on(l) ? S.products.filter(p => shLive(p, l)).length + ' produtos' : 'desligada', on(l) ? 'com estoque e preço' : 'esta loja não aparece no site')).join('')
+    + k('', 'Produtos ativos no site', S.products.length - off, off ? `${off} desativados` : 'todos ativados')
+    + k('', 'Pedidos do site em aberto', open, 'em Orçamentos');
+  if (shTab === 'cfg' && !$('#shPaneCfg').contains(document.activeElement)) {
+    for (const [id, key] of Object.entries(SH_TXT)) $('#' + id).value = c[key] || '';
     $('#shPY').checked = on('PY'); $('#shSP').checked = on('SP'); $('#shWaPY').value = c.lojas?.PY?.whatsapp || ''; $('#shWaSP').value = c.lojas?.SP?.whatsapp || '';
     $('#shQtd').checked = !!c.mostrarEstoque; $('#shAtivo').checked = ativo;
+    $('#shEsgot').checked = c.mostrarEsgotados !== false; $('#shSemPreco').checked = c.mostrarSemPreco !== false;
+    $('#shValDias').value = c.validadeDias || '';
   }
-  const k = (cls, head, v, sub) => `<div class="kpi ${cls}"><span class="lbl">${head}</span><span class="v">${v}</span><span class="s">${sub}</span></div>`;
-  const live = l => S.products.filter(p => !p.lojaOculto && stockOf(p, l) > 0 && priceFor(p, l === 'PY' ? 'USD' : 'BRL') > 0);
-  const noPrice = l => S.products.filter(p => !p.lojaOculto && stockOf(p, l) > 0 && !(priceFor(p, l === 'PY' ? 'USD' : 'BRL') > 0)).length;
-  const open = (S.quotes || []).filter(q => q.origem === 'site' && q.status === 'aberto').length;
-  $('#shKpis').innerHTML = ['PY', 'SP'].map(l => k(l.toLowerCase(), (l === 'PY' ? FLAG_PY : FLAG_BR) + ` No site · ${LOJAS[l].nome}`, on(l) ? live(l).length + ' produtos' : 'desligada', on(l) ? `${live(l).filter(p => !p.foto).length} sem foto · ${noPrice(l)} com estoque e sem preço` : 'esta loja não aparece no site')).join('')
-    + k('', 'Pedidos do site em aberto', open, 'em Orçamentos');
+  if (shTab === 'prod') renderShopProd();
+  if (shTab === 'cat') renderShopCat();
 }
+const catOpts = (sel, blank) => `<option value="">${blank}</option>` + shCats().map(c => `<option value="${c.id}"${c.id === sel ? ' selected' : ''}>${esc(c.nome)}${c.ativo ? '' : ' (desligada)'}</option>`).join('');
+function shopProdList() {
+  const f = $('#shPF').value.trim().toLowerCase(), cat = $('#shPCat').value, sit = $('#shPSit').value;
+  return S.products.filter(p => matchP(p, f)
+    && (!cat || (cat === '0' ? !p.categoriaId : p.categoriaId === +cat))
+    && (!sit || (sit === 'on' ? !p.lojaOculto : sit === 'off' ? p.lojaOculto : sit === 'nostock' ? stockOf(p, 'PY') <= 0 && stockOf(p, 'SP') <= 0 : sit === 'noprice' ? !(+p.precoUsd > 0) && !(+p.precoBrl > 0) : !p.foto)));
+}
+function renderShopProd() {
+  const ed = can('produtos'), cv = $('#shPCat').value;
+  $('#shPCat').innerHTML = catOpts(null, 'Todas') + '<option value="0">Sem categoria</option>'; $('#shPCat').value = cv;
+  $('#shPMove').innerHTML = '<option value="">Mover os listados para…</option>' + shCats().map(c => `<option value="${c.id}">${esc(c.nome)}</option>`).join('') + '<option value="0">Sem categoria</option>';
+  $$('.shbulk button, .shbulk select').forEach(b => { b.hidden = !ed; });
+  const L = shopProdList();
+  $('#shPCount').textContent = `${L.length} de ${S.products.length} produtos · ${L.filter(p => !p.lojaOculto).length} ativos na loja`;
+  const st = (p, l) => `<span class="pill num ${stockOf(p, l) <= 0 ? 'bad' : stockOf(p, l) <= 3 ? 'warn' : ''}">${stockOf(p, l)}</span>`;
+  const pr = (p, cur) => { const v = priceFor(p, cur); return v > 0 ? fm(v, cur) : '<span class="pill warn">sem preço</span>'; };
+  $('#shPList').innerHTML = L.length ? `<table><thead><tr><th></th><th>Produto</th><th>Categoria</th><th class="r">Preço PY</th><th class="r">Preço SP</th><th class="r">PY</th><th class="r">BR</th><th class="r">No site</th></tr></thead><tbody>${L.map(p => `<tr class="${p.lojaOculto ? 'off' : ''}">
+    <td>${p.foto ? `<img class="sh-thumb" src="/loja/foto/${p.id}?v=${p.foto}" alt="" loading="lazy">` : '<span class="sh-thumb ph">sem foto</span>'}</td>
+    <td>${esc(p.nome)}<div class="hint">${esc([p.codigo, p.marca].filter(Boolean).join(' · '))}</div></td>
+    <td>${ed ? `<select data-shcat="${p.id}">${catOpts(p.categoriaId, 'Sem categoria')}</select>` : esc(catName(p.categoriaId) || '—')}</td>
+    <td class="r num">${pr(p, 'USD')}</td><td class="r num">${pr(p, 'BRL')}</td><td class="r">${st(p, 'PY')}</td><td class="r">${st(p, 'SP')}</td>
+    <td class="r"><label class="sw" title="${p.lojaOculto ? 'Desativado na loja' : 'Ativo na loja'}"><input type="checkbox" data-shon="${p.id}"${p.lojaOculto ? '' : ' checked'}${ed ? '' : ' disabled'} aria-label="Mostrar ${esc(p.nome)} na loja"><span></span></label></td></tr>`).join('')}</tbody></table>`
+    : `<div class="empty">${S.products.length ? 'Nenhum produto encontrado.' : 'Nenhum produto cadastrado ainda.'}</div>`;
+}
+function renderShopCat() {
+  const C = shCats(), ed = can('usuarios');
+  const n = id => S.products.filter(p => p.categoriaId === id).length;
+  $('#shCatList').innerHTML = C.length ? `<table><thead><tr><th>Ordem</th><th>Nome</th><th class="r">Produtos</th><th class="r">No site</th><th></th></tr></thead><tbody>${C.map((c, i) => `<tr class="${c.ativo ? '' : 'off'}">
+    <td style="white-space:nowrap"><button class="btn small" data-catup="${c.id}"${i ? '' : ' disabled'} aria-label="Subir">↑</button> <button class="btn small" data-catdn="${c.id}"${i < C.length - 1 ? '' : ' disabled'} aria-label="Descer">↓</button></td>
+    <td><input type="text" data-catnm="${c.id}" value="${esc(c.nome)}" maxlength="60" aria-label="Nome da categoria"></td>
+    <td class="r num">${n(c.id)}</td>
+    <td class="r"><label class="sw"><input type="checkbox" data-caton="${c.id}"${c.ativo ? ' checked' : ''} aria-label="Mostrar ${esc(c.nome)} no site"><span></span></label></td>
+    <td class="r"><button class="btn small danger" data-catdel="${c.id}">Excluir</button></td></tr>`).join('')}</tbody></table>` : '<div class="empty">Nenhuma categoria ainda. Crie a primeira acima.</div>';
+  $$('#shCatList input, #shCatList button').forEach(b => { if (!ed) b.disabled = true; });
+  const un = S.products.filter(p => !p.categoriaId).length;
+  if (un) $('#shCatList').insertAdjacentHTML('beforeend', `<p class="hint">${un} produto${un > 1 ? 's' : ''} sem categoria aparece${un > 1 ? 'm' : ''} na aba “Outros”. Escolha a categoria na aba Produtos.</p>`);
+}
+$('#shTabs').onclick = e => { const b = e.target.closest('[data-sh]'); if (!b) return; shTab = b.dataset.sh; try { localStorage.setItem('trw_shtab', shTab); } catch (x) {} renderShop(); };
 $('#shSave').onclick = async () => {
-  const body = { ativo: $('#shAtivo').checked, nome: $('#shNome').value, slogan: $('#shSlogan').value, sobre: $('#shSobre').value, mostrarEstoque: $('#shQtd').checked,
+  const body = { ...Object.fromEntries(Object.entries(SH_TXT).map(([id, key]) => [key, $('#' + id).value])), ativo: $('#shAtivo').checked, mostrarEstoque: $('#shQtd').checked,
+    mostrarEsgotados: $('#shEsgot').checked, mostrarSemPreco: $('#shSemPreco').checked, validadeDias: +$('#shValDias').value || 7,
     lojas: { PY: { ativo: $('#shPY').checked, whatsapp: $('#shWaPY').value }, SP: { ativo: $('#shSP').checked, whatsapp: $('#shWaSP').value } } };
-  if (await act(() => api('/loja/config', 'POST', body), 'Loja online salva.')) { document.activeElement?.blur(); renderShop(); }
+  if (await act(() => api('/loja/config', 'POST', body), 'Configurações da loja salvas.')) { document.activeElement?.blur(); renderShop(); }
 };
 $('#shCopy').onclick = async () => { try { await navigator.clipboard.writeText(shopUrl()); toast('Endereço copiado.'); } catch (e) { toast(shopUrl()); } };
+['#shPF', '#shPCat', '#shPSit'].forEach(s => { $(s).oninput = renderShopProd; });
+const shBulk = async (body, msg) => {
+  const ids = shopProdList().map(p => p.id); if (!ids.length) return toast('Nenhum produto listado.', true);
+  await act(() => api('/loja/produtos', 'POST', { ids, ...body }), msg(ids.length));
+};
+$('#shPOn').onclick = () => shBulk({ ativo: true }, n => `${n} produto${n > 1 ? 's' : ''} ativado${n > 1 ? 's' : ''} na loja.`);
+$('#shPOff').onclick = () => shBulk({ ativo: false }, n => `${n} produto${n > 1 ? 's' : ''} desativado${n > 1 ? 's' : ''} na loja.`);
+$('#shPMove').onchange = async e => { const v = e.target.value; if (v === '') return; e.target.value = ''; await shBulk({ categoriaId: +v || null }, n => `${n} produto${n > 1 ? 's' : ''} movido${n > 1 ? 's' : ''} para ${+v ? catName(+v) : 'sem categoria'}.`); };
+$('#shPList').onchange = async e => {
+  const t = e.target;
+  if (t.dataset.shon) await act(() => api('/loja/produtos', 'POST', { ids: [+t.dataset.shon], ativo: t.checked }), t.checked ? 'Produto ativado na loja.' : 'Produto desativado na loja.');
+  else if (t.dataset.shcat) await act(() => api('/loja/produtos', 'POST', { ids: [+t.dataset.shcat], categoriaId: +t.value || null }), 'Categoria do produto alterada.');
+};
+$('#shCatAdd').onclick = async () => {
+  const nome = $('#shCatNome').value.trim(); if (!nome) return toast('Informe o nome da categoria.', true);
+  if (await act(() => api('/loja/categorias', 'POST', { nome }), 'Categoria criada.')) $('#shCatNome').value = '';
+};
+$('#shCatNome').onkeydown = e => { if (e.key === 'Enter') $('#shCatAdd').click(); };
+const saveCat = (c, ch, msg) => act(() => api('/loja/categorias/' + c.id, 'PUT', { nome: c.nome, ativo: c.ativo, ...ch }), msg);
+$('#shCatList').onchange = async e => {
+  const t = e.target, c = shCats().find(x => x.id === +(t.dataset.catnm || t.dataset.caton)); if (!c) return;
+  if (t.dataset.catnm) { if (!(await saveCat(c, { nome: t.value }, 'Categoria renomeada.'))) t.value = c.nome; }
+  else await saveCat(c, { ativo: t.checked }, t.checked ? 'Categoria ligada no site.' : 'Categoria desligada no site.');
+};
+$('#shCatList').onkeydown = e => { if (e.key === 'Enter' && e.target.dataset.catnm) e.target.blur(); };
+$('#shCatList').onclick = async e => {
+  const mv = e.target.closest('[data-catup],[data-catdn]'), del = e.target.closest('[data-catdel]');
+  if (mv) {
+    const ids = shCats().map(c => c.id), id = +(mv.dataset.catup || mv.dataset.catdn), i = ids.indexOf(id), j = mv.dataset.catup ? i - 1 : i + 1;
+    if (j < 0 || j >= ids.length) return;
+    [ids[i], ids[j]] = [ids[j], ids[i]];
+    await act(() => api('/loja/categorias/ordem', 'POST', { ids }), 'Ordem das categorias salva.');
+  } else if (del) {
+    if (!armed(del, 'Confirmar exclusão', 'Excluir')) return;
+    await act(() => api('/loja/categorias/' + del.dataset.catdel, 'DELETE', {}), 'Categoria excluída. Os produtos dela ficaram sem categoria.');
+  }
+};
 
 function renderBot() {
   if (!botTimer) { botTimer = setInterval(loadBot, 3000); loadBot(); loadBotPrev(); }

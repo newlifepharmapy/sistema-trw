@@ -42,14 +42,14 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round
 .hero-sub { margin: 18px 0 0; color: var(--ink-2); font-size: 1.05rem; max-width: 52ch; }
 
 /* filters */
-.filters { display: flex; gap: 16px; align-items: center; justify-content: space-between; padding: 10px 0 6px; border-top: 1px solid var(--line); flex-wrap: wrap; }
-.chips { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; padding: 6px 0; flex: 1; min-width: 0; }
+.filters { position: sticky; top: var(--top-h, 68px); z-index: 5; background: var(--bg); border-bottom: 1px solid var(--line); margin-bottom: 4px; }
+.chips { display: flex; gap: 28px; overflow-x: auto; scrollbar-width: none; scroll-snap-type: x proximity; }
 .chips::-webkit-scrollbar { display: none; }
-.chip { border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 7px 15px; font-size: .88rem; color: var(--ink-2); white-space: nowrap; transition: all .15s; }
-.chip:hover { border-color: var(--line-2); color: var(--ink); }
-.chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
-.filters-r { display: flex; gap: 8px; }
-.filters-r select { appearance: none; -webkit-appearance: none; border: 1px solid var(--line); background: var(--surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5l5-5' fill='none' stroke='%238a847a' stroke-width='1.6'/%3E%3C/svg%3E") no-repeat right 12px center / 10px; border-radius: 999px; padding: 8px 34px 8px 15px; font-size: .88rem; color: var(--ink-2); max-width: 200px; }
+.chip { position: relative; border: 0; background: none; padding: 16px 0 14px; font-size: .92rem; font-weight: 500; color: var(--muted); white-space: nowrap; letter-spacing: .01em; scroll-snap-align: start; transition: color .15s; }
+.chip::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: var(--accent); transform: scaleX(0); transition: transform .2s; }
+.chip:hover { color: var(--ink); }
+.chip.on { color: var(--accent); }
+.chip.on::after { transform: scaleX(1); }
 .count { color: var(--muted); font-size: .85rem; margin: 12px 0 18px; }
 
 /* grid */
@@ -70,6 +70,12 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round
 .price { font-weight: 600; font-size: 1.05rem; font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
 .add { border: 1px solid var(--accent); color: var(--accent); background: none; border-radius: 999px; padding: 7px 16px; font-size: .85rem; font-weight: 500; transition: all .15s; }
 .add:hover { background: var(--accent); color: #fff; }
+a.add { text-decoration: none; text-align: center; }
+.add.off, .add.off:hover { border-color: var(--line-2); color: var(--muted); background: none; cursor: default; }
+.price.muted { color: var(--muted); font-weight: 500; font-size: .92rem; }
+.card.out .media img { opacity: .45; filter: grayscale(.6); }
+.card.out .ph i { opacity: .08; }
+.badge.out { color: var(--muted); }
 .step { display: inline-flex; align-items: center; border: 1px solid var(--line-2); border-radius: 999px; background: var(--surface); height: 36px; }
 .step button { border: 0; background: none; width: 34px; height: 100%; font-size: 1.1rem; color: var(--ink-2); border-radius: 999px; }
 .step button:hover { color: var(--ink); background: var(--tile); }
@@ -90,6 +96,9 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round
 .foot-contact a { display: inline-flex; align-items: center; gap: 10px; color: var(--ink); text-decoration: none; font-weight: 500; }
 .foot-contact a img { width: 22px; height: 14px; border-radius: 2px; box-shadow: 0 0 0 1px rgba(0, 0, 0, .08); }
 .foot-contact a:hover { color: var(--accent); }
+.foot-contact span { display: inline-flex; align-items: center; gap: 10px; color: var(--ink-2); }
+.foot-contact svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; flex: none; color: var(--accent); }
+.foot-legal:empty { display: none; }
 .foot-legal { color: var(--muted); font-size: .8rem; padding-bottom: 36px; }
 
 /* buttons */
@@ -199,8 +208,7 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round
   .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px 12px; }
   .c-foot { flex-direction: column; align-items: stretch; gap: 8px; }
   .c-foot .add, .c-foot .step { width: 100%; justify-content: space-between; }
-  .filters-r { width: 100%; }
-  .filters-r select { flex: 1; max-width: none; }
+  .chips { gap: 22px; }
   .overlay { padding: 0; align-items: end; }
   .dialog { border-radius: 20px 20px 0 0; max-height: 92vh; }
   .p-buy { flex-wrap: wrap; }

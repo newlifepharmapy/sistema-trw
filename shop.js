@@ -12,19 +12,32 @@ module.exports = ({ app, pool, auth, need, h, bad, bump, str, num, r2, todayStr,
     return {
       ativo: c.ativo !== false,
       nome: c.nome || 'New Life Pharma',
+      chamada: c.chamada || 'Catálogo online',
       slogan: c.slogan || 'Produtos com procedência, entregues com cuidado.',
+      subtitulo: c.subtitulo || 'Estoque atualizado em tempo real. Monte seu pedido e confirme pelo WhatsApp.',
       sobre: c.sobre || '',
+      aviso: c.aviso || 'Preços e disponibilidade sujeitos a confirmação. O pagamento é combinado na confirmação do pedido.',
+      fechadaMsg: c.fechadaMsg || 'Volte em breve ou fale conosco pelo WhatsApp.',
+      pedidoMsg: c.pedidoMsg || 'Seu pedido chegou para a nossa equipe.',
+      instagram: String(c.instagram || '').replace(/^@/, ''), email: c.email || '', endereco: c.endereco || '', horario: c.horario || '',
       mostrarEstoque: !!c.mostrarEstoque,
+      mostrarEsgotados: c.mostrarEsgotados !== false,
+      mostrarSemPreco: c.mostrarSemPreco !== false,
+      validadeDias: Math.min(60, Math.max(1, Math.round(num(c.validadeDias, 7)))),
       lojas: Object.fromEntries(LOJAS.map(l => [l, { ativo: c.lojas?.[l]?.ativo !== false, whatsapp: digits(c.lojas?.[l]?.whatsapp) }])),
     };
   }
+  const OPT_TXT = ['nome', 'chamada', 'slogan', 'subtitulo', 'sobre', 'aviso', 'fechadaMsg', 'pedidoMsg', 'instagram', 'email', 'endereco', 'horario'];
   const stockCol = l => (l === 'PY' ? 'estoque_py' : 'estoque_sp');
   // Paraguay sells in dollars; São Paulo in reais, at the fixed R$ price or the dollar price at today's rate
   const priceOf = (p, l, rate) => (l === 'PY' ? r2(p.preco_usd) : +p.preco_brl > 0 ? r2(p.preco_brl) : rate ? r2(p.preco_usd * rate) : 0);
-  async function onSale(l, rate) {
-    const { rows } = await pool.query(`select * from products where ativo and not loja_oculto and ${stockCol(l)} > 0 order by nome`);
-    return rows.map(p => ({ p, preco: priceOf(p, l, rate), qtd: Math.floor(+p[stockCol(l)]) })).filter(x => x.preco > 0 && x.qtd > 0);
+  // every active product switched on for the shop, in an active category (or none); with stock and price it can be ordered
+  async function listed(l, rate) {
+    const { rows } = await pool.query(`select p.*, c.nome cat_nome, c.ordem cat_ordem from products p left join shop_categories c on c.id = p.categoria_id
+      where p.ativo and not p.loja_oculto and (c.id is null or c.ativo) order by p.nome`);
+    return rows.map(p => ({ p, preco: priceOf(p, l, rate), qtd: Math.max(0, Math.floor(+p[stockCol(l)])) }));
   }
+  const onSale = async (l, rate) => (await listed(l, rate)).filter(x => x.preco > 0 && x.qtd > 0);
 
   // on the shop's own addresses (loja.<domain>, or a domain listed in SHOP_HOSTS) the root shows the shop instead of the system
   const SHOP_HOSTS = (process.env.SHOP_HOSTS || 'newlifepharma.co,www.newlifepharma.co').split(',').map(x => x.trim().toLowerCase()).filter(Boolean);
@@ -37,14 +50,21 @@ module.exports = ({ app, pool, auth, need, h, bad, bump, str, num, r2, todayStr,
   app.get('/api/loja/catalogo', h(async (req, res) => {
     const cfg = await config();
     const lojas = LOJAS.filter(l => cfg.lojas[l].ativo);
-    const base = { nome: cfg.nome, slogan: cfg.slogan, sobre: cfg.sobre, lojas: lojas.map(l => ({ id: l, nome: NOMES[l], moeda: l === 'PY' ? 'USD' : 'BRL', whatsapp: cfg.lojas[l].whatsapp })), pagamentos: PAYS };
-    if (!cfg.ativo || !lojas.length) return res.json({ ...base, fechada: true, produtos: [] });
+    const { lojas: _l, validadeDias, mostrarEsgotados, mostrarSemPreco, ...pub } = cfg;
+    const base = { ...pub, lojas: lojas.map(l => ({ id: l, nome: NOMES[l], moeda: l === 'PY' ? 'USD' : 'BRL', whatsapp: cfg.lojas[l].whatsapp })), pagamentos: PAYS };
+    if (!cfg.ativo || !lojas.length) return res.json({ ...base, fechada: true, produtos: [], categorias: [] });
     const l = lojas.includes(req.query.l) ? req.query.l : lojas[0];
-    const items = await onSale(l, await currentRate());
+    const items = (await listed(l, await currentRate())).filter(x => (x.qtd > 0 || mostrarEsgotados) && (x.preco > 0 || mostrarSemPreco));
+    // only the categories that have something to show in this store, in the order set in the panel
+    const cats = new Map();
+    for (const { p } of items) if (p.categoria_id) cats.set(p.categoria_id, { id: p.categoria_id, nome: p.cat_nome, ordem: p.cat_ordem });
+    const categorias = [...cats.values()].sort((a, b) => a.ordem - b.ordem || a.nome.localeCompare(b.nome, 'pt')).map(({ id, nome }) => ({ id, nome }));
+    if (items.some(x => !x.p.categoria_id)) categorias.push({ id: 0, nome: 'Outros' });
     res.setHeader('Cache-Control', 'no-cache');
-    res.json({ ...base, loja: l, moeda: l === 'PY' ? 'USD' : 'BRL', produtos: items.map(({ p, preco, qtd }) => ({
-      id: p.id, codigo: p.codigo, nome: p.nome, marca: p.marca, grupo: p.grupo, descricao: p.descricao || '', preco,
-      max: Math.min(qtd, 999), poucas: qtd <= 3, estoque: cfg.mostrarEstoque ? qtd : undefined, foto: p.foto_ts || null,
+    res.json({ ...base, loja: l, moeda: l === 'PY' ? 'USD' : 'BRL', categorias, produtos: items.map(({ p, preco, qtd }) => ({
+      id: p.id, codigo: p.codigo, nome: p.nome, marca: p.marca, categoria: p.categoria_id || 0, descricao: p.descricao || '', preco,
+      max: preco > 0 ? Math.min(qtd, 999) : 0, esgotado: qtd <= 0, consultar: !(preco > 0), poucas: qtd > 0 && qtd <= 3,
+      estoque: cfg.mostrarEstoque ? qtd : undefined, foto: p.foto_ts || null,
     })) });
   }));
 
@@ -85,7 +105,7 @@ module.exports = ({ app, pool, auth, need, h, bad, bump, str, num, r2, todayStr,
     }
     if (!itens.length) bad('Seu carrinho está vazio.');
     const total = r2(itens.reduce((a, i) => a + i.qtd * i.preco, 0));
-    const validade = new Date(Date.parse(todayStr() + 'T12:00:00Z') + 7 * 864e5).toISOString().slice(0, 10);
+    const validade = new Date(Date.parse(todayStr() + 'T12:00:00Z') + cfg.validadeDias * 864e5).toISOString().slice(0, 10);
     const nota = ['Pedido da loja online', 'WhatsApp: ' + tel, cidade && 'Cidade: ' + cidade, 'Pagamento: ' + pagamento, obs && 'Obs. do cliente: ' + obs].filter(Boolean).join(' · ');
     const { rows } = await pool.query(`insert into quotes (loja,data,ts,moeda,cliente,obs,validade,itens,total,cotacao,vendedor_id,vendedor_nome,subtotal,origem,contato) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,null,'Loja online',$9,'site',$11) returning id`,
       [l, todayStr(), Date.now(), l === 'PY' ? 'USD' : 'BRL', nome, nota, validade, JSON.stringify(itens), total, rate, tel]);
@@ -98,11 +118,54 @@ module.exports = ({ app, pool, auth, need, h, bad, bump, str, num, r2, todayStr,
   app.post('/api/loja/config', auth, need('usuarios'), h(async (req, res) => {
     const b = req.body || {};
     const c = {
-      ativo: b.ativo !== false, nome: str(b.nome, 80), slogan: str(b.slogan, 160), sobre: str(b.sobre, 1200), mostrarEstoque: !!b.mostrarEstoque,
+      ...Object.fromEntries(OPT_TXT.map(k => [k, str(b[k], ['sobre', 'aviso'].includes(k) ? 1200 : 200)])),
+      ativo: b.ativo !== false, mostrarEstoque: !!b.mostrarEstoque, mostrarEsgotados: b.mostrarEsgotados !== false, mostrarSemPreco: b.mostrarSemPreco !== false,
+      validadeDias: Math.min(60, Math.max(1, Math.round(num(b.validadeDias, 7)))),
       lojas: Object.fromEntries(LOJAS.map(l => [l, { ativo: b.lojas?.[l]?.ativo !== false, whatsapp: digits(b.lojas?.[l]?.whatsapp).slice(0, 16) }])),
     };
     await pool.query('insert into settings (id) values (1) on conflict (id) do nothing');
     await pool.query('update settings set loja=$1 where id=1', [JSON.stringify(c)]);
+    bump(); res.json({ ok: true });
+  }));
+
+  // categories: name, order and on/off; deleting one leaves its products without a category
+  const catName = async (nome, id) => {
+    const n = str(nome, 60); if (!n) bad('Informe o nome da categoria.');
+    const { rows } = await pool.query('select 1 from shop_categories where lower(nome)=lower($1) and id <> $2', [n, id || 0]);
+    if (rows.length) bad('Já existe uma categoria com este nome.');
+    return n;
+  };
+  app.post('/api/loja/categorias', auth, need('usuarios'), h(async (req, res) => {
+    const nome = await catName(req.body?.nome);
+    const { rows } = await pool.query('insert into shop_categories (nome, ordem) values ($1, (select coalesce(max(ordem), 0) + 1 from shop_categories)) returning id', [nome]);
+    bump(); res.json({ ok: true, id: rows[0].id });
+  }));
+  app.put('/api/loja/categorias/:id', auth, need('usuarios'), h(async (req, res) => {
+    const id = +req.params.id, b = req.body || {};
+    const nome = await catName(b.nome, id);
+    const r = await pool.query('update shop_categories set nome=$1, ativo=$2 where id=$3', [nome, b.ativo !== false, id]);
+    if (!r.rowCount) bad('Categoria não encontrada.');
+    bump(); res.json({ ok: true });
+  }));
+  app.post('/api/loja/categorias/ordem', auth, need('usuarios'), h(async (req, res) => {
+    const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(Number).filter(Boolean).slice(0, 500) : [];
+    for (const [i, id] of ids.entries()) await pool.query('update shop_categories set ordem=$1 where id=$2', [i + 1, id]);
+    bump(); res.json({ ok: true });
+  }));
+  app.delete('/api/loja/categorias/:id', auth, need('usuarios'), h(async (req, res) => {
+    await pool.query('delete from shop_categories where id=$1', [+req.params.id]);
+    bump(); res.json({ ok: true });
+  }));
+  // a product on or off in the shop and its category, one at a time or many at once
+  app.post('/api/loja/produtos', auth, need('produtos'), h(async (req, res) => {
+    const b = req.body || {}, ids = Array.isArray(b.ids) ? b.ids.map(Number).filter(Boolean).slice(0, 5000) : [];
+    if (!ids.length) bad('Nenhum produto escolhido.');
+    if ('ativo' in b) await pool.query('update products set loja_oculto=$1 where id = any($2)', [!b.ativo, ids]);
+    if ('categoriaId' in b) {
+      const cid = +b.categoriaId || null;
+      if (cid && !(await pool.query('select 1 from shop_categories where id=$1', [cid])).rows.length) bad('Categoria não encontrada.');
+      await pool.query('update products set categoria_id=$1 where id = any($2)', [cid, ids]);
+    }
     bump(); res.json({ ok: true });
   }));
 

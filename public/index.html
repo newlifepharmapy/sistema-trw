@@ -216,6 +216,7 @@
               <span class="lbl">Loja online</span>
               <div class="row wrap" style="gap:8px"><label class="btn small" for="pFoto">Escolher foto</label><input type="file" id="pFoto" accept="image/*" hidden><button class="btn small" id="pFotoRm" type="button" hidden>Remover foto</button></div>
               <label class="field"><span class="lbl">Descrição para o site (opcional)</span><textarea id="pDesc" maxlength="2000" placeholder="Apresentação, indicação, conteúdo da embalagem…"></textarea></label>
+              <label class="field"><span class="lbl">Categoria no site</span><select id="pCat"></select></label>
               <label class="check"><input type="checkbox" id="pOculto"> Não mostrar na loja online</label>
             </div>
           </div>
@@ -405,16 +406,36 @@
 
       <!-- WHATSAPP BOT -->
       <section class="pane" id="pane-shop" hidden>
-        <div class="card">
-          <div class="row between"><h2>Loja online</h2><span class="pill" id="shState">—</span></div>
-          <p class="hint">O site mostra os produtos com estoque e preço de venda de cada loja, com foto e descrição cadastradas em Produtos. Custo, lote e fornecedor nunca aparecem. Cada pedido feito no site chega em <b>Orçamentos</b> marcado como “Loja online”, sem mexer no estoque.</p>
-          <div class="row wrap" style="gap:10px;margin:6px 0 14px"><a class="btn primary" id="shOpen" href="/loja/" target="_blank" rel="noopener">Abrir a loja</a><button class="btn" id="shCopy" type="button">Copiar endereço</button><span class="hint num" id="shUrl"></span></div>
+        <div class="card shop-head">
+          <div class="row between wrap" style="gap:10px"><div class="row wrap" style="gap:10px"><h2 style="margin:0">Loja online</h2><span class="pill" id="shState">—</span></div>
+            <div class="row wrap" style="gap:8px"><a class="btn primary" id="shOpen" href="/loja/" target="_blank" rel="noopener">Abrir a loja</a><button class="btn" id="shCopy" type="button">Copiar endereço</button></div></div>
+          <div class="kpis" id="shKpis" style="margin-top:14px"></div>
+          <div class="seg shtabs" id="shTabs" style="margin-top:16px"><button data-sh="cfg">Configurações</button><button data-sh="prod">Produtos</button><button data-sh="cat">Categorias</button></div>
+        </div>
+
+        <div class="card" id="shPaneCfg">
+          <h3 class="shsec">Loja</h3>
+          <label class="check"><input type="checkbox" id="shAtivo"> Loja aberta (desmarque para fechar o site)</label>
+          <label class="field" style="margin-top:8px"><span class="lbl">Mensagem com a loja fechada</span><input type="text" id="shFechadaMsg" maxlength="200" placeholder="Volte em breve ou fale conosco pelo WhatsApp."></label>
+          <h3 class="shsec">Textos do site</h3>
           <div class="fields">
-            <label class="field span2"><span class="lbl">Nome da loja</span><input type="text" id="shNome" maxlength="80" placeholder="ex.: TRW Trade Group"></label>
-            <label class="field span2"><span class="lbl">Frase de destaque</span><input type="text" id="shSlogan" maxlength="160" placeholder="Produtos com procedência, entregues com cuidado."></label>
-            <label class="field span4"><span class="lbl">Sobre a loja (rodapé)</span><textarea id="shSobre" maxlength="1200" placeholder="Quem somos, horários, entrega…"></textarea></label>
+            <label class="field span2"><span class="lbl">Nome da loja</span><input type="text" id="shNome" maxlength="80" placeholder="New Life Pharma"></label>
+            <label class="field span2"><span class="lbl">Texto pequeno acima do título</span><input type="text" id="shChamada" maxlength="200" placeholder="Catálogo online"></label>
+            <label class="field span4"><span class="lbl">Título principal</span><input type="text" id="shSlogan" maxlength="200" placeholder="Produtos com procedência, entregues com cuidado."></label>
+            <label class="field span4"><span class="lbl">Texto abaixo do título</span><input type="text" id="shSubtitulo" maxlength="200" placeholder="Estoque atualizado em tempo real. Monte seu pedido e confirme pelo WhatsApp."></label>
+            <label class="field span4"><span class="lbl">Sobre a loja (rodapé)</span><textarea id="shSobre" maxlength="1200" placeholder="Quem somos, entrega…"></textarea></label>
+            <label class="field span4"><span class="lbl">Aviso no fim da página</span><textarea id="shAviso" maxlength="1200" placeholder="Preços e disponibilidade sujeitos a confirmação. O pagamento é combinado na confirmação do pedido."></textarea></label>
+            <label class="field span4"><span class="lbl">Mensagem depois do pedido enviado</span><input type="text" id="shPedidoMsg" maxlength="200" placeholder="Seu pedido chegou para a nossa equipe."></label>
           </div>
-          <div class="grid2" style="margin-top:6px">
+          <h3 class="shsec">Contato (rodapé)</h3>
+          <div class="fields">
+            <label class="field"><span class="lbl">Instagram</span><input type="text" id="shInstagram" maxlength="200" placeholder="@newlifepharma"></label>
+            <label class="field"><span class="lbl">E-mail</span><input type="email" id="shEmail" maxlength="200" placeholder="contato@newlifepharma.co"></label>
+            <label class="field span2"><span class="lbl">Endereço</span><input type="text" id="shEndereco" maxlength="200" placeholder="Rua, número, cidade"></label>
+            <label class="field span2"><span class="lbl">Horário de atendimento</span><input type="text" id="shHorario" maxlength="200" placeholder="Seg a sex, 9h às 18h"></label>
+          </div>
+          <h3 class="shsec">Lojas e WhatsApp dos pedidos</h3>
+          <div class="grid2">
             <div class="nota-loja"><h3><span class="pill py">PY</span> Paraguay · preços em US$</h3>
               <label class="check"><input type="checkbox" id="shPY"> Mostrar a loja Paraguay no site</label>
               <label class="field"><span class="lbl">WhatsApp que recebe os pedidos (com código do país)</span><input type="tel" id="shWaPY" placeholder="595981123456"></label></div>
@@ -422,14 +443,35 @@
               <label class="check"><input type="checkbox" id="shSP"> Mostrar a loja São Paulo no site</label>
               <label class="field"><span class="lbl">WhatsApp que recebe os pedidos (com código do país)</span><input type="tel" id="shWaSP" placeholder="5511987654321"></label></div>
           </div>
-          <label class="check" style="margin-top:10px"><input type="checkbox" id="shQtd"> Mostrar ao cliente a quantidade exata em estoque</label>
-          <label class="check"><input type="checkbox" id="shAtivo"> Loja aberta (desmarque para fechar o site)</label>
-          <div class="row actions"><button class="btn primary" id="shSave">Salvar</button></div>
+          <h3 class="shsec">Produtos e pedidos</h3>
+          <label class="check"><input type="checkbox" id="shEsgot"> Mostrar produtos sem estoque, marcados como “Esgotado”</label>
+          <label class="check"><input type="checkbox" id="shSemPreco"> Mostrar produtos sem preço, com botão “Consultar” no WhatsApp</label>
+          <label class="check"><input type="checkbox" id="shQtd"> Mostrar ao cliente a quantidade exata em estoque</label>
+          <label class="field" style="max-width:260px;margin-top:8px"><span class="lbl">Validade do pedido em Orçamentos (dias)</span><input type="number" id="shValDias" min="1" max="60" step="1" placeholder="7"></label>
+          <p class="hint">Custo, lote e fornecedor nunca aparecem no site. Cada pedido chega em <b>Orçamentos</b> marcado como “Loja online”, sem mexer no estoque.</p>
+          <div class="row actions"><button class="btn primary" id="shSave">Salvar configurações</button></div>
         </div>
-        <div class="card">
-          <h2>O que aparece no site</h2>
-          <div class="kpis" id="shKpis"></div>
-          <p class="hint">Só entram produtos com estoque e preço de venda na loja escolhida. Para tirar um produto do site, marque “Não mostrar na loja online” em Produtos › Editar. Produtos sem foto aparecem com as iniciais da marca.</p>
+
+        <div class="card" id="shPaneProd" hidden>
+          <div class="row wrap" style="gap:10px;align-items:end">
+            <label class="field" style="flex:2;min-width:200px"><span class="lbl">Buscar</span><input type="search" id="shPF" placeholder="Nome, código ou marca"></label>
+            <label class="field" style="flex:1;min-width:160px"><span class="lbl">Categoria</span><select id="shPCat"></select></label>
+            <label class="field" style="flex:1;min-width:140px"><span class="lbl">Situação</span><select id="shPSit"><option value="">Todos</option><option value="on">Ativos na loja</option><option value="off">Desativados</option><option value="nostock">Sem estoque</option><option value="noprice">Sem preço</option><option value="nofoto">Sem foto</option></select></label>
+          </div>
+          <div class="row wrap shbulk" style="gap:8px;margin:12px 0 4px"><span class="hint" id="shPCount"></span><span style="flex:1"></span>
+            <button class="btn small" id="shPOn" type="button">Ativar os listados</button><button class="btn small" id="shPOff" type="button">Desativar os listados</button>
+            <select id="shPMove" class="small"><option value="">Mover os listados para…</option></select></div>
+          <div class="tablewrap" id="shPList"></div>
+          <p class="hint">Todo produto cadastrado entra no site ativado. Foto e descrição ficam em Produtos › Editar. Na loja só dá para pedir o que tem estoque e preço naquela loja.</p>
+        </div>
+
+        <div class="card" id="shPaneCat" hidden>
+          <div class="row wrap" style="gap:10px;align-items:end">
+            <label class="field" style="flex:1;min-width:220px"><span class="lbl">Nova categoria</span><input type="text" id="shCatNome" maxlength="60" placeholder="ex.: Analgésicos"></label>
+            <button class="btn primary" id="shCatAdd" type="button">Adicionar</button>
+          </div>
+          <div class="tablewrap" id="shCatList" style="margin-top:14px"></div>
+          <p class="hint">Cada categoria vira uma aba no site, nesta ordem. Categorias desligadas ou sem produtos não aparecem. Produtos sem categoria ficam na aba “Outros”.</p>
         </div>
       </section>
 

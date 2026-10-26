@@ -95,7 +95,7 @@ const canStore = (u, l) => has(u, 'vendas_' + l);
 
 const pubUser = u => ({ id: u.id, login: u.login, nome: u.nome, papel: u.papel, loja: u.loja, telefone: u.telefone, documento: u.documento, comissao: u.comissao, ativo: u.ativo, permissoes: perms(u) });
 // lote/validade of a product = its lot that expires first among those in stock
-const mapProduct = (p, lots = []) => ({ id: p.id, codigo: p.codigo, nome: p.nome, grupo: p.grupo, marca: p.marca, lotes: lots, lote: lots[0]?.lote || '', validade: lots[0]?.validade || '', custo: p.custo, custoSp: p.custo_sp, precoUsd: p.preco_usd, precoBrl: p.preco_brl, estoque: { PY: p.estoque_py, SP: p.estoque_sp }, descricao: p.descricao || '', lojaOculto: !!p.loja_oculto, foto: p.foto_ts || null });
+const mapProduct = (p, lots = []) => ({ id: p.id, codigo: p.codigo, nome: p.nome, grupo: p.grupo, marca: p.marca, lotes: lots, lote: lots[0]?.lote || '', validade: lots[0]?.validade || '', custo: p.custo, custoSp: p.custo_sp, precoUsd: p.preco_usd, precoBrl: p.preco_brl, estoque: { PY: p.estoque_py, SP: p.estoque_sp }, descricao: p.descricao || '', lojaOculto: !!p.loja_oculto, foto: p.foto_ts || null, categoriaId: p.categoria_id || null });
 const mapQuote = q => ({ id: q.id, loja: q.loja, data: q.data, ts: q.ts, moeda: q.moeda, cliente: q.cliente, obs: q.obs, validade: q.validade || '', itens: q.itens, subtotal: q.subtotal == null ? q.total : q.subtotal, fretePct: q.frete_pct, freteValor: q.frete_valor, freteiro: q.freteiro, total: q.total, cotacao: q.cotacao, vendedorNome: q.vendedor_nome, status: q.status, vendaId: q.venda_id, origem: q.origem || 'sistema', contato: q.contato || '' });
 const mapTransfer = t => ({ id: t.id, data: t.data, ts: t.ts, itens: t.itens, subtotal: t.subtotal, fretePct: t.frete_pct, freteValor: t.frete_valor, freteiro: t.freteiro, total: t.total, criadoPor: t.criado_por, cancelada: t.cancelada, canceladaPor: t.cancelada_por });
 const mapSale = s => ({ id: s.id, loja: s.loja, data: s.data, ts: s.ts, moeda: s.moeda, total: s.total, cotacao: s.cotacao, pagamento: s.pagamento, cliente: s.cliente, itens: s.itens, custoUsd: s.custo_usd, vendedorId: s.vendedor_id, vendedorNome: s.vendedor_nome, cancelada: s.cancelada, canceladaPor: s.cancelada_por });
@@ -178,7 +178,7 @@ app.get('/api/data', auth, h(async (req, res) => {
   const u = req.user, allSales = has(u, 'dash');
   const stores = LOJAS.filter(l => canStore(u, l));
   const since = Date.now() - 400 * 864e5;
-  const [settings, hist, products, lotRows, sales] = await Promise.all([
+  const [settings, hist, products, lotRows, sales, shopCats] = await Promise.all([
     pool.query('select * from settings where id=1'),
     pool.query('select * from rate_history order by dia desc limit 200'),
     pool.query('select * from products where ativo order by nome'),
@@ -186,6 +186,7 @@ app.get('/api/data', auth, h(async (req, res) => {
     allSales
       ? pool.query('select * from sales where ts >= $1 order by ts desc', [since])
       : pool.query('select * from sales where ts >= $1 and loja = any($2) order by ts desc', [since, stores]),
+    pool.query('select id, nome, ordem, ativo from shop_categories order by ordem, nome'),
   ]);
   const st = settings.rows[0];
   const out = {
@@ -196,6 +197,7 @@ app.get('/api/data', auth, h(async (req, res) => {
     products: products.rows.map(p => mapProduct(p, lotRows.rows.filter(l => l.product_id === p.id).map(l => ({ loja: l.loja, lote: l.lote, validade: l.validade, qtd: +l.qtd, fornecedor: l.fornecedor || '' })))),
     // costs and profit only reach those allowed to see them
     sales: sales.rows.map(mapSale).map(x => has(u, 'lucro') ? x : { ...x, custoUsd: null, itens: (x.itens || []).map(({ custoUsd, ce, ...i }) => i) }),
+    shopCats: shopCats.rows,
     purchases: [], imports: [], users: [],
   };
   const none = Promise.resolve({ rows: [] });
@@ -357,6 +359,7 @@ app.post('/api/products', auth, need('produtos'), h(async (req, res) => {
   const v = productBody(req.body);
   if (await codeTaken(v[0])) bad('Já existe um produto com este código.');
   const { rows } = await pool.query(`insert into products (codigo,nome,custo,preco_usd,preco_brl,estoque_py,estoque_sp,grupo,marca,descricao,loja_oculto) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) returning id`, v);
+  await setCategory(rows[0].id, req.body, v[7]);
   bump(); res.json({ id: rows[0].id });
 }));
 app.put('/api/products/:id', auth, need('produtos'), h(async (req, res) => {
@@ -372,8 +375,16 @@ app.put('/api/products/:id', auth, need('produtos'), h(async (req, res) => {
     if (lotes) { await c.query('delete from stock_lots where product_id=$1', [id]); for (const l of lotes) await addLot(c, id, l.loja, l.lote, l.validade, l.qtd, l.fornecedor); }
     await fitLots(c, id);
   });
+  if ('categoriaId' in req.body) await setCategory(id, req.body);
   bump(); res.json({ ok: true });
 }));
+// the shop category picked in the product form; a new product without one joins the category named like its group
+async function setCategory(id, b, grupo) {
+  let cat = +b.categoriaId || null;
+  if (!cat && grupo && !('categoriaId' in b)) cat = (await pool.query('select id from shop_categories where lower(nome)=lower($1)', [grupo])).rows[0]?.id || null;
+  if (cat && !(await pool.query('select 1 from shop_categories where id=$1', [cat])).rows.length) bad('Categoria inválida.');
+  await pool.query('update products set categoria_id=$1 where id=$2', [cat, id]);
+}
 // the sale price typed straight in a store's stock list: Paraguay sells in dollars, São Paulo in reais
 // (an empty São Paulo price goes back to the dollar price at the current rate)
 app.put('/api/products/:id/preco', auth, need('produtos'), h(async (req, res) => {

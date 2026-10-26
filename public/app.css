@@ -112,7 +112,7 @@ main{padding:22px 24px 60px;max-width:1440px;width:100%}
 .seg button{border:0;background:none;padding:6px 12px;font-weight:600;font-size:.84rem;color:var(--muted)}
 .seg button+button{border-left:1px solid var(--line)}
 .seg button[aria-pressed="true"]{background:var(--ink);color:var(--surface)}
-input[type=text],input[type=tel],input[type=number],input[type=password],input[type=date],input[type=month],input[type=search],select{background:var(--surface);border:1px solid var(--line-2);border-radius:7px;padding:8px 10px;min-width:0;width:100%}
+input[type=text],input[type=email],input[type=tel],input[type=number],input[type=password],input[type=date],input[type=month],input[type=search],select{background:var(--surface);border:1px solid var(--line-2);border-radius:7px;padding:8px 10px;min-width:0;width:100%}
 input:focus,select:focus{border-color:var(--accent);outline:none;box-shadow:0 0 0 3px var(--accent-soft)}
 .field{display:flex;flex-direction:column;gap:4px;min-width:0}
 .field.end{justify-content:flex-end}
@@ -298,3 +298,19 @@ td.r.num{white-space:nowrap}
 .pshop-r label.btn{cursor:pointer}
 @media (max-width:560px){.pshop{grid-template-columns:1fr}}
 .fields .span4{grid-column:1/-1}
+/* online shop panel */
+.shsec{margin:18px 0 8px;font-size:.95rem}
+.shsec:first-child{margin-top:0}
+.sh-thumb{width:40px;height:40px;border-radius:8px;object-fit:cover;background:var(--line);display:block}
+.sh-thumb.ph{display:grid;place-items:center;color:var(--muted);font-size:.6rem;text-align:center;line-height:1.1}
+.sw{position:relative;display:inline-block;width:40px;height:22px;flex:none;cursor:pointer}
+.sw input{opacity:0;width:0;height:0;position:absolute}
+.sw span{position:absolute;inset:0;border-radius:22px;background:var(--line-2);transition:background .15s}
+.sw span::after{content:'';position:absolute;left:3px;top:3px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.25);transition:transform .15s}
+.sw input:checked+span{background:var(--ok, #1d7a46)}
+.sw input:checked+span::after{transform:translateX(18px)}
+.sw input:focus-visible+span{outline:2px solid var(--ink);outline-offset:2px}
+#shPList select,#shCatList input[type=text]{min-width:130px}
+#shPList tr.off td:not(:last-child){opacity:.55}
+select.small{padding:5px 8px;font-size:.84rem;width:auto}
+.field textarea{width:100%;min-height:64px;font:inherit;padding:8px 10px;border:1px solid var(--line-2);border-radius:7px;background:var(--surface);color:var(--fg);resize:vertical}

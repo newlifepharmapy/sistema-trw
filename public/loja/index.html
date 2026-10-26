@@ -31,22 +31,14 @@
 
 <main>
   <section class="hero wrap">
-    <p class="eyebrow" id="heroEyebrow">Catálogo online</p>
+    <p class="eyebrow" id="heroEyebrow"></p>
     <h1 id="heroTitle"></h1>
-    <p class="hero-sub">Estoque atualizado em tempo real. Monte seu pedido e confirme pelo WhatsApp.</p>
+    <p class="hero-sub" id="heroSub"></p>
   </section>
 
   <section class="wrap">
     <div class="filters">
       <div class="chips" id="chips" role="tablist" aria-label="Categorias"></div>
-      <div class="filters-r">
-        <select id="fMarca" aria-label="Marca"></select>
-        <select id="fSort" aria-label="Ordenar">
-          <option value="nome">Nome, A a Z</option>
-          <option value="menor">Menor preço</option>
-          <option value="maior">Maior preço</option>
-        </select>
-      </div>
     </div>
     <p class="count" id="count"></p>
     <div class="grid" id="grid"></div>
@@ -62,7 +54,7 @@
     </div>
     <div class="foot-contact" id="footContact"></div>
   </div>
-  <div class="wrap foot-legal">Preços e disponibilidade sujeitos a confirmação. O pagamento é combinado na confirmação do pedido.</div>
+  <div class="wrap foot-legal" id="footLegal"></div>
 </footer>
 
 <!-- product -->
@@ -76,7 +68,7 @@
       <p class="p-group" id="pGroup"></p>
       <div class="p-price" id="pPrice"></div>
       <p class="p-desc" id="pDesc"></p>
-      <div class="p-buy"><div class="step" id="pStep"></div><button class="btn primary" id="pAdd">Adicionar ao pedido</button></div>
+      <div class="p-buy"><div class="step" id="pStep"></div><button class="btn primary" id="pAdd">Adicionar ao pedido</button><a class="btn wa" id="pAsk" target="_blank" rel="noopener" hidden>Consultar pelo WhatsApp</a></div>
       <p class="p-note" id="pNote"></p>
     </div>
   </div>
