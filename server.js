@@ -20,7 +20,7 @@ app.use(helmet({
       scriptSrc: ["'self'"],
       styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
       fontSrc: ["'self'", 'https://fonts.gstatic.com'],
-      imgSrc: ["'self'", 'data:'],
+      imgSrc: ["'self'", 'data:', 'blob:'],
       connectSrc: ["'self'"],
       frameAncestors: ["'none'"],
     },
@@ -95,8 +95,8 @@ const canStore = (u, l) => has(u, 'vendas_' + l);
 
 const pubUser = u => ({ id: u.id, login: u.login, nome: u.nome, papel: u.papel, loja: u.loja, telefone: u.telefone, documento: u.documento, comissao: u.comissao, ativo: u.ativo, permissoes: perms(u) });
 // lote/validade of a product = its lot that expires first among those in stock
-const mapProduct = (p, lots = []) => ({ id: p.id, codigo: p.codigo, nome: p.nome, grupo: p.grupo, marca: p.marca, lotes: lots, lote: lots[0]?.lote || '', validade: lots[0]?.validade || '', custo: p.custo, custoSp: p.custo_sp, precoUsd: p.preco_usd, precoBrl: p.preco_brl, estoque: { PY: p.estoque_py, SP: p.estoque_sp } });
-const mapQuote = q => ({ id: q.id, loja: q.loja, data: q.data, ts: q.ts, moeda: q.moeda, cliente: q.cliente, obs: q.obs, validade: q.validade || '', itens: q.itens, subtotal: q.subtotal == null ? q.total : q.subtotal, fretePct: q.frete_pct, freteValor: q.frete_valor, freteiro: q.freteiro, total: q.total, cotacao: q.cotacao, vendedorNome: q.vendedor_nome, status: q.status, vendaId: q.venda_id });
+const mapProduct = (p, lots = []) => ({ id: p.id, codigo: p.codigo, nome: p.nome, grupo: p.grupo, marca: p.marca, lotes: lots, lote: lots[0]?.lote || '', validade: lots[0]?.validade || '', custo: p.custo, custoSp: p.custo_sp, precoUsd: p.preco_usd, precoBrl: p.preco_brl, estoque: { PY: p.estoque_py, SP: p.estoque_sp }, descricao: p.descricao || '', lojaOculto: !!p.loja_oculto, foto: p.foto_ts || null });
+const mapQuote = q => ({ id: q.id, loja: q.loja, data: q.data, ts: q.ts, moeda: q.moeda, cliente: q.cliente, obs: q.obs, validade: q.validade || '', itens: q.itens, subtotal: q.subtotal == null ? q.total : q.subtotal, fretePct: q.frete_pct, freteValor: q.frete_valor, freteiro: q.freteiro, total: q.total, cotacao: q.cotacao, vendedorNome: q.vendedor_nome, status: q.status, vendaId: q.venda_id, origem: q.origem || 'sistema', contato: q.contato || '' });
 const mapTransfer = t => ({ id: t.id, data: t.data, ts: t.ts, itens: t.itens, subtotal: t.subtotal, fretePct: t.frete_pct, freteValor: t.frete_valor, freteiro: t.freteiro, total: t.total, criadoPor: t.criado_por, cancelada: t.cancelada, canceladaPor: t.cancelada_por });
 const mapSale = s => ({ id: s.id, loja: s.loja, data: s.data, ts: s.ts, moeda: s.moeda, total: s.total, cotacao: s.cotacao, pagamento: s.pagamento, cliente: s.cliente, itens: s.itens, custoUsd: s.custo_usd, vendedorId: s.vendedor_id, vendedorNome: s.vendedor_nome, cancelada: s.cancelada, canceladaPor: s.cancelada_por });
 const mapPurchase = p => ({ id: p.id, data: p.data, ts: p.ts, fornecedor: p.fornecedor, loja: p.loja, moeda: p.moeda, itens: p.itens, subtotal: p.subtotal, fretePct: p.frete_pct, freteValor: p.frete_valor, freteiro: p.freteiro, total: p.total, cotacao: p.cotacao, pagamento: p.pagamento, criadoPor: p.criado_por, cancelada: p.cancelada, canceladaPor: p.cancelada_por });
@@ -191,7 +191,7 @@ app.get('/api/data', auth, h(async (req, res) => {
   const out = {
     v: version,
     me: pubUser(u),
-    settings: st ? { cotacao: st.cotacao, atualizadoEm: st.atualizado_em, atualizadoPor: st.atualizado_por, spread: st.spread, auto: st.auto, binance: st.binance, binanceEm: st.binance_em, binanceErro: st.binance_erro, nota: st.nota } : null,
+    settings: st ? { cotacao: st.cotacao, atualizadoEm: st.atualizado_em, atualizadoPor: st.atualizado_por, spread: st.spread, auto: st.auto, binance: st.binance, binanceEm: st.binance_em, binanceErro: st.binance_erro, nota: st.nota, loja: st.loja || {} } : null,
     historico: hist.rows.map(r => ({ d: r.dia, v: r.valor, por: r.por, ts: r.ts })),
     products: products.rows.map(p => mapProduct(p, lotRows.rows.filter(l => l.product_id === p.id).map(l => ({ loja: l.loja, lote: l.lote, validade: l.validade, qtd: +l.qtd, fornecedor: l.fornecedor || '' })))),
     // costs and profit only reach those allowed to see them
@@ -346,7 +346,7 @@ const prefOf = i => (i.lotePref && typeof i.lotePref === 'object') ? { lote: str
 // ---------- produtos ----------
 function productBody(b) {
   const nome = str(b.nome); if (!nome) bad('Informe o nome do produto.');
-  return [str(b.codigo, 60), nome, r2(num(b.custo)), r2(num(b.precoUsd)), r2(num(b.precoBrl)), num(b.estoque?.PY), num(b.estoque?.SP), str(b.grupo, 60), str(b.marca, 60)];
+  return [str(b.codigo, 60), nome, r2(num(b.custo)), r2(num(b.precoUsd)), r2(num(b.precoBrl)), num(b.estoque?.PY), num(b.estoque?.SP), str(b.grupo, 60), str(b.marca, 60), str(b.descricao, 2000), !!b.lojaOculto];
 }
 async function codeTaken(codigo, id) {
   if (!codigo) return false;
@@ -356,7 +356,7 @@ async function codeTaken(codigo, id) {
 app.post('/api/products', auth, need('produtos'), h(async (req, res) => {
   const v = productBody(req.body);
   if (await codeTaken(v[0])) bad('Já existe um produto com este código.');
-  const { rows } = await pool.query(`insert into products (codigo,nome,custo,preco_usd,preco_brl,estoque_py,estoque_sp,grupo,marca) values ($1,$2,$3,$4,$5,$6,$7,$8,$9) returning id`, v);
+  const { rows } = await pool.query(`insert into products (codigo,nome,custo,preco_usd,preco_brl,estoque_py,estoque_sp,grupo,marca,descricao,loja_oculto) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) returning id`, v);
   bump(); res.json({ id: rows[0].id });
 }));
 app.put('/api/products/:id', auth, need('produtos'), h(async (req, res) => {
@@ -368,7 +368,7 @@ app.put('/api/products/:id', auth, need('produtos'), h(async (req, res) => {
     if (sum > est) bad(`Os lotes de ${loja === 'PY' ? 'Paraguay' : 'São Paulo'} somam ${sum} un., mais que o estoque de ${est} un.`);
   }
   await tx(async c => {
-    await c.query(`update products set codigo=$1,nome=$2,custo=$3,preco_usd=$4,preco_brl=$5,estoque_py=$6,estoque_sp=$7,grupo=$8,marca=$9 where id=$10`, [...v, id]);
+    await c.query(`update products set codigo=$1,nome=$2,custo=$3,preco_usd=$4,preco_brl=$5,estoque_py=$6,estoque_sp=$7,grupo=$8,marca=$9,descricao=$10,loja_oculto=$11 where id=$12`, [...v, id]);
     if (lotes) { await c.query('delete from stock_lots where product_id=$1', [id]); for (const l of lotes) await addLot(c, id, l.loja, l.lote, l.validade, l.qtd, l.fornecedor); }
     await fitLots(c, id);
   });
@@ -944,6 +944,9 @@ app.get('/api/bot/previa/:loja', auth, need('usuarios'), h(async (req, res) => {
   const loja = req.params.loja === 'PY' ? 'PY' : 'SP';
   res.json({ cambio: await bot.rateMessage(), tabela: await bot.tableMessage(loja) });
 }));
+
+// ---------- loja online ----------
+require('./shop')({ app, pool, auth, need, h, bad, bump, str, num, r2, todayStr, currentRate, LOJAS, linkCli });
 
 // ---------- static + errors ----------
 app.get('/health', (req, res) => res.json({ ok: true }));

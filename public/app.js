@@ -5,7 +5,7 @@ const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const LOJAS = { PY: { nome: 'Paraguay', cur: 'USD' }, SP: { nome: 'São Paulo', cur: 'BRL' } };
 const PAYS = ['PIX / Transf.', 'USDT', 'EFETIVO'];
-const TITLES = { dash: 'Dashboard', PY: 'Vendas Paraguay', SP: 'Vendas São Paulo', orc: 'Orçamentos', hist: 'Histórico de vendas', cli: 'Clientes', tab: 'Tabela WhatsApp', stock: 'Estoque total', stPY: 'Estoque Paraguay', stSP: 'Estoque São Paulo', prod: 'Produtos', buy: 'Compras e entradas', trf: 'Transferência PY → SP', imp: 'Importações', fx: 'Câmbio', users: 'Usuários', nota: 'Impressão da nota', bot: 'Bot WhatsApp' };
+const TITLES = { dash: 'Dashboard', PY: 'Vendas Paraguay', SP: 'Vendas São Paulo', orc: 'Orçamentos', hist: 'Histórico de vendas', cli: 'Clientes', tab: 'Tabela WhatsApp', stock: 'Estoque total', stPY: 'Estoque Paraguay', stSP: 'Estoque São Paulo', prod: 'Produtos', buy: 'Compras e entradas', trf: 'Transferência PY → SP', imp: 'Importações', fx: 'Câmbio', users: 'Usuários', nota: 'Impressão da nota', bot: 'Bot WhatsApp', shop: 'Loja online' };
 const ls = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
 
 const S = { v: null, rate: null, settings: null, historico: [], users: [], products: [], sales: [], purchases: [], imports: [], transfers: [], trfItems: [], quotes: [], orcItems: [], me: null, tab: null,
@@ -66,7 +66,7 @@ const PERMS = [
 const PRESET = { supervisor: PERMS.map(p => p[0]).filter(p => p !== 'excluir'), vendedor: ['vendas_PY'] };
 const can = p => !!(S.me && (S.me.permissoes || []).includes(p));
 const canStore = l => can('vendas_' + l);
-const TAB_PERM = { cli: 'clientes', dash: 'dash', PY: 'vendas_PY', SP: 'vendas_SP', buy: 'compras', trf: 'compras', imp: 'importacoes', fx: 'cambio', users: 'usuarios', nota: 'usuarios', bot: 'usuarios' };
+const TAB_PERM = { cli: 'clientes', dash: 'dash', PY: 'vendas_PY', SP: 'vendas_SP', buy: 'compras', trf: 'compras', imp: 'importacoes', fx: 'cambio', users: 'usuarios', nota: 'usuarios', bot: 'usuarios', shop: 'usuarios' };
 const stockOf = (p, l) => +(p.estoque?.[l] ?? 0);
 // SP units carry the freight paid to bring them, so their cost can be higher than in PY
 const costOf = (p, l) => +(l === 'SP' && p.custoSp != null ? p.custoSp : p.custo) || 0;
@@ -198,7 +198,7 @@ function refresh() {
   $('#rateWhen').textContent = at ? (isToday ? 'hoje ' + fTime(at) : 'em ' + new Date(+at).toLocaleDateString('pt-BR')) : '';
   $('#rateWhen').className = 'when' + (at && !isToday ? ' pill warn' : '');
   $('#noRate').hidden = !!S.rate;
-  ({ dash: renderDash, PY: () => renderSaleData('PY'), SP: () => renderSaleData('SP'), orc: renderOrc, hist: renderHist, cli: renderCli, tab: renderTab, buy: renderBuy, trf: renderTrf, imp: renderImp, prod: renderProd, stock: renderStock, stPY: () => renderStore('PY'), stSP: () => renderStore('SP'), fx: renderFx, users: renderUsers, nota: renderNota, bot: renderBot })[S.tab]?.();
+  ({ dash: renderDash, PY: () => renderSaleData('PY'), SP: () => renderSaleData('SP'), orc: renderOrc, hist: renderHist, cli: renderCli, tab: renderTab, buy: renderBuy, trf: renderTrf, imp: renderImp, prod: renderProd, stock: renderStock, stPY: () => renderStore('PY'), stSP: () => renderStore('SP'), fx: renderFx, users: renderUsers, nota: renderNota, bot: renderBot, shop: renderShop })[S.tab]?.();
 }
 
 /* ---------- sale panes ---------- */
@@ -858,9 +858,29 @@ function fillP(p) {
   $('#pCode').value = p?.codigo || ''; $('#pName').value = p?.nome || ''; $('#pGrupo').value = p?.grupo || ''; $('#pMarca').value = p?.marca || '';
   $('#pCost').value = p?.custo ?? ''; $('#pPriceUsd').value = p?.precoUsd ?? ''; $('#pPriceBrl').value = p?.precoBrl || '';
   $('#pStPY').value = p ? stockOf(p, 'PY') : ''; $('#pStSP').value = p ? stockOf(p, 'SP') : '';
+  $('#pDesc').value = p?.descricao || ''; $('#pOculto').checked = !!p?.lojaOculto; pFoto = null; drawPFoto(p);
   pLots = p ? (p.lotes || []).map(x => ({ loja: x.loja, lote: x.lote, val: fVal(x.validade), qtd: x.qtd, forn: x.fornecedor || '' })) : [];
   $('#pLotsBox').hidden = !p; drawPLots();
 }
+// product photo for the online shop: reduced in the browser to at most 900 px before it is sent
+let pFoto = null; // data URL waiting to be saved, '' to remove the saved one
+function drawPFoto(p) {
+  const src = pFoto || (pFoto === '' || !p?.foto ? '' : `/loja/foto/${p.id}?v=${p.foto}`);
+  $('#pFotoImg').hidden = !src; if (src) $('#pFotoImg').src = src; else $('#pFotoImg').removeAttribute('src');
+  $('#pFotoPh').hidden = !!src; $('#pFotoRm').hidden = !src;
+}
+$('#pFoto').onchange = async e => {
+  const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+  try {
+    const img = await new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = no; i.src = URL.createObjectURL(f); });
+    const k = Math.min(1, 900 / Math.max(img.width, img.height)), cv = document.createElement('canvas');
+    cv.width = Math.round(img.width * k); cv.height = Math.round(img.height * k);
+    const x = cv.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, cv.width, cv.height); x.drawImage(img, 0, 0, cv.width, cv.height);
+    URL.revokeObjectURL(img.src);
+    pFoto = cv.toDataURL('image/jpeg', 0.86); drawPFoto(S.products.find(p => p.id === editP));
+  } catch (err) { toast('Não foi possível abrir esta imagem.', true); }
+};
+$('#pFotoRm').onclick = () => { pFoto = ''; drawPFoto(S.products.find(p => p.id === editP)); };
 // lot list of the product being edited, to fix the quantities by hand
 let pLots = [];
 function drawPLots() {
@@ -882,13 +902,18 @@ $('#pLots').addEventListener('click', e => { const b = e.target.closest('[data-p
 $('#pCancel').onclick = () => fillP(null);
 $('#pSave').onclick = async () => {
   if (!$('#pName').value.trim()) return toast('Informe o nome do produto.', true);
-  const doc = { codigo: $('#pCode').value, nome: $('#pName').value, grupo: $('#pGrupo').value, marca: $('#pMarca').value, custo: +$('#pCost').value || 0, precoUsd: +$('#pPriceUsd').value || 0, precoBrl: +$('#pPriceBrl').value || 0, estoque: { PY: +$('#pStPY').value || 0, SP: +$('#pStSP').value || 0 } };
+  const doc = { codigo: $('#pCode').value, nome: $('#pName').value, grupo: $('#pGrupo').value, marca: $('#pMarca').value, custo: +$('#pCost').value || 0, precoUsd: +$('#pPriceUsd').value || 0, precoBrl: +$('#pPriceBrl').value || 0, estoque: { PY: +$('#pStPY').value || 0, SP: +$('#pStSP').value || 0 }, descricao: $('#pDesc').value, lojaOculto: $('#pOculto').checked };
   if (editP) {
     const badV = pLots.find(x => x.val.trim() && !monthEnd(x.val));
     if (badV) return toast('Validade de lote inválida. Use mês e ano, ex.: 08/2029.', true);
     doc.lotes = pLots.filter(x => x.qtd > 0 && (x.lote.trim() || x.val.trim())).map(x => ({ loja: x.loja, lote: x.lote.trim(), validade: monthEnd(x.val), qtd: x.qtd, fornecedor: (x.forn || '').trim() }));
   }
-  if (await act(() => editP ? api('/products/' + editP, 'PUT', doc) : api('/products', 'POST', doc), 'Produto salvo.')) fillP(null);
+  const foto = pFoto;
+  if (await act(async () => {
+    const r = editP ? await api('/products/' + editP, 'PUT', doc) : await api('/products', 'POST', doc), id = editP || r.id;
+    if (foto) await api(`/products/${id}/foto`, 'POST', { data: foto }); else if (foto === '') await api(`/products/${id}/foto`, 'DELETE', {});
+    return r;
+  }, 'Produto salvo.')) fillP(null);
 };
 document.addEventListener('click', async e => {
   const ed = e.target.closest('[data-editp]'); if (ed) { fillP(S.products.find(p => p.id === +ed.dataset.editp)); $('#pFormCard').scrollIntoView({ behavior: 'smooth' }); return; }
@@ -1289,7 +1314,7 @@ function renderOrc() {
   const f = $('#oFilter').value, L = S.quotes.filter(q => f === 'all' || q.status === f).slice(0, 300);
   const stPill = q => q.status === 'vendido' ? '<span class="pill ok">virou venda</span>' : q.status === 'cancelado' ? '<span class="pill bad">cancelado</span>' : qExpired(q) ? '<span class="pill warn">vencido</span>' : '<span class="pill">em aberto</span>';
   $('#orcList').innerHTML = L.length ? `<table><thead><tr><th>Nº</th><th>Data</th><th>Loja</th><th>Cliente</th><th>Itens</th><th>Válido até</th><th>Situação</th><th class="r">Total</th>${can('lucro') ? '<th class="r">Lucro previsto</th>' : ''}<th></th></tr></thead><tbody>${L.map(q => { const oc = q.moeda === 'USD' ? 'BRL' : 'USD';
-    return `<tr class="${q.status === 'cancelado' ? 'cancel' : ''}"><td class="num">${String(q.id).padStart(6, '0')}</td><td class="num">${fDate(q.data)}</td><td><span class="pill ${q.loja.toLowerCase()}">${q.loja}</span></td><td>${esc(q.cliente || '—')}</td><td>${itemLines(q.itens, q.moeda)}</td><td class="num">${q.validade ? fDate(q.validade) : '—'}</td><td>${stPill(q)}</td><td class="r num"><b>${fm(q.total, q.moeda)}</b><div class="hint">${fm(saleIn(q, oc), oc)}</div>${+q.freteValor ? `<div class="hint">frete ${fm(+q.freteValor, q.moeda)}${q.freteiro ? ' · ' + esc(q.freteiro) : ''}</div>` : ''}</td>${can('lucro') ? (() => { const e = expProfit(q.itens || [], q.loja, q.moeda); return `<td class="r num"><b class="${e.p < 0 ? 'neg' : 'pos'}">${fm(e.p, q.moeda)}</b><div class="hint">margem ${marg(e.p, e.v)}</div><div class="hint">custo de hoje</div></td>`; })() : ''}
+    return `<tr class="${q.status === 'cancelado' ? 'cancel' : ''}"><td class="num">${String(q.id).padStart(6, '0')}</td><td class="num">${fDate(q.data)}</td><td><span class="pill ${q.loja.toLowerCase()}">${q.loja}</span></td><td>${esc(q.cliente || '—')}${q.origem === 'site' ? `<div><span class="pill ok">Loja online</span></div>${q.contato ? `<div class="hint num">${esc(q.contato)}</div>` : ''}` : ''}</td><td>${itemLines(q.itens, q.moeda)}</td><td class="num">${q.validade ? fDate(q.validade) : '—'}</td><td>${stPill(q)}</td><td class="r num"><b>${fm(q.total, q.moeda)}</b><div class="hint">${fm(saleIn(q, oc), oc)}</div>${+q.freteValor ? `<div class="hint">frete ${fm(+q.freteValor, q.moeda)}${q.freteiro ? ' · ' + esc(q.freteiro) : ''}</div>` : ''}</td>${can('lucro') ? (() => { const e = expProfit(q.itens || [], q.loja, q.moeda); return `<td class="r num"><b class="${e.p < 0 ? 'neg' : 'pos'}">${fm(e.p, q.moeda)}</b><div class="hint">margem ${marg(e.p, e.v)}</div><div class="hint">custo de hoje</div></td>`; })() : ''}
       <td class="r" style="white-space:nowrap"><button class="btn small" data-oprint="${q.id}">Imprimir</button> <button class="btn small" data-owa="${q.id}">WhatsApp</button>${q.status === 'aberto' ? ` <button class="btn small" data-oedit="${q.id}">Editar</button> <button class="btn small primary" data-osell="${q.id}">Vender</button> <button class="btn small danger" data-ocancel="${q.id}">Cancelar</button>` : ''}${q.status === 'cancelado' && can('excluir') ? ` <button class="btn small danger" data-odel="${q.id}">Excluir</button>` : ''}</td></tr>`; }).join('')}</tbody></table>`
     : `<div class="empty">${S.quotes.length ? 'Nenhum orçamento neste filtro.' : 'Nenhum orçamento ainda.'}</div>`;
 }
@@ -1353,6 +1378,33 @@ async function loadBot() {
   try { botS = await api('/bot'); } catch (e) { return; }
   paintBot();
 }
+/* ---------- online shop ---------- */
+const shopUrl = () => location.origin + '/loja/';
+function renderShop() {
+  const c = S.settings?.loja || {}, nota = S.settings?.nota || {}, form = $('#pane-shop .card');
+  const ativo = c.ativo !== false, on = l => c.lojas?.[l]?.ativo !== false;
+  $('#shState').textContent = ativo ? 'Aberta' : 'Fechada'; $('#shState').className = 'pill ' + (ativo ? 'ok' : 'bad');
+  $('#shUrl').textContent = shopUrl();
+  if (!form.contains(document.activeElement)) {
+    $('#shNome').value = c.nome || ''; $('#shNome').placeholder = nota.PY?.empresa || nota.SP?.empresa || 'TRW';
+    $('#shSlogan').value = c.slogan || ''; $('#shSobre').value = c.sobre || '';
+    $('#shPY').checked = on('PY'); $('#shSP').checked = on('SP'); $('#shWaPY').value = c.lojas?.PY?.whatsapp || ''; $('#shWaSP').value = c.lojas?.SP?.whatsapp || '';
+    $('#shQtd').checked = !!c.mostrarEstoque; $('#shAtivo').checked = ativo;
+  }
+  const k = (cls, head, v, sub) => `<div class="kpi ${cls}"><span class="lbl">${head}</span><span class="v">${v}</span><span class="s">${sub}</span></div>`;
+  const live = l => S.products.filter(p => !p.lojaOculto && stockOf(p, l) > 0 && priceFor(p, l === 'PY' ? 'USD' : 'BRL') > 0);
+  const noPrice = l => S.products.filter(p => !p.lojaOculto && stockOf(p, l) > 0 && !(priceFor(p, l === 'PY' ? 'USD' : 'BRL') > 0)).length;
+  const open = (S.quotes || []).filter(q => q.origem === 'site' && q.status === 'aberto').length;
+  $('#shKpis').innerHTML = ['PY', 'SP'].map(l => k(l.toLowerCase(), (l === 'PY' ? FLAG_PY : FLAG_BR) + ` No site · ${LOJAS[l].nome}`, on(l) ? live(l).length + ' produtos' : 'desligada', on(l) ? `${live(l).filter(p => !p.foto).length} sem foto · ${noPrice(l)} com estoque e sem preço` : 'esta loja não aparece no site')).join('')
+    + k('', 'Pedidos do site em aberto', open, 'em Orçamentos');
+}
+$('#shSave').onclick = async () => {
+  const body = { ativo: $('#shAtivo').checked, nome: $('#shNome').value, slogan: $('#shSlogan').value, sobre: $('#shSobre').value, mostrarEstoque: $('#shQtd').checked,
+    lojas: { PY: { ativo: $('#shPY').checked, whatsapp: $('#shWaPY').value }, SP: { ativo: $('#shSP').checked, whatsapp: $('#shWaSP').value } } };
+  if (await act(() => api('/loja/config', 'POST', body), 'Loja online salva.')) { document.activeElement?.blur(); renderShop(); }
+};
+$('#shCopy').onclick = async () => { try { await navigator.clipboard.writeText(shopUrl()); toast('Endereço copiado.'); } catch (e) { toast(shopUrl()); } };
+
 function renderBot() {
   if (!botTimer) { botTimer = setInterval(loadBot, 3000); loadBot(); loadBotPrev(); }
 }

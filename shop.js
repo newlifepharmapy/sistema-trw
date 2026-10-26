@@ -1,0 +1,126 @@
+// Online shop: a public catalog of the products in stock, and orders that reach the system as quotes.
+// The public side never sees costs, lots or exact stock beyond what is needed to cap a quantity.
+const PAYS = ['PIX / Transf.', 'USDT', 'EFETIVO'];
+const NOMES = { PY: 'Paraguay', SP: 'Brasil' };
+
+module.exports = ({ app, pool, auth, need, h, bad, bump, str, num, r2, todayStr, currentRate, LOJAS, linkCli }) => {
+  const digits = v => String(v || '').replace(/\D/g, '');
+
+  async function config() {
+    const { rows } = await pool.query('select loja, nota from settings where id=1');
+    const c = rows[0]?.loja || {}, nota = rows[0]?.nota || {};
+    return {
+      ativo: c.ativo !== false,
+      nome: c.nome || nota.PY?.empresa || nota.SP?.empresa || 'TRW',
+      slogan: c.slogan || 'Produtos com procedência, entregues com cuidado.',
+      sobre: c.sobre || '',
+      mostrarEstoque: !!c.mostrarEstoque,
+      lojas: Object.fromEntries(LOJAS.map(l => [l, { ativo: c.lojas?.[l]?.ativo !== false, whatsapp: digits(c.lojas?.[l]?.whatsapp) }])),
+    };
+  }
+  const stockCol = l => (l === 'PY' ? 'estoque_py' : 'estoque_sp');
+  // Paraguay sells in dollars; São Paulo in reais, at the fixed R$ price or the dollar price at today's rate
+  const priceOf = (p, l, rate) => (l === 'PY' ? r2(p.preco_usd) : +p.preco_brl > 0 ? r2(p.preco_brl) : rate ? r2(p.preco_usd * rate) : 0);
+  async function onSale(l, rate) {
+    const { rows } = await pool.query(`select * from products where ativo and not loja_oculto and ${stockCol(l)} > 0 order by nome`);
+    return rows.map(p => ({ p, preco: priceOf(p, l, rate), qtd: Math.floor(+p[stockCol(l)]) })).filter(x => x.preco > 0 && x.qtd > 0);
+  }
+
+  // on the shop's own address (loja.<domain>) the root shows the shop instead of the system
+  app.use((req, res, next) => {
+    if (/^loja\./i.test(req.hostname || '') && !req.path.startsWith('/api/') && !/^\/loja(\/|$)/.test(req.path)) req.url = '/loja' + req.url;
+    next();
+  });
+
+  app.get('/api/loja/catalogo', h(async (req, res) => {
+    const cfg = await config();
+    const lojas = LOJAS.filter(l => cfg.lojas[l].ativo);
+    const base = { nome: cfg.nome, slogan: cfg.slogan, sobre: cfg.sobre, lojas: lojas.map(l => ({ id: l, nome: NOMES[l], moeda: l === 'PY' ? 'USD' : 'BRL', whatsapp: cfg.lojas[l].whatsapp })), pagamentos: PAYS };
+    if (!cfg.ativo || !lojas.length) return res.json({ ...base, fechada: true, produtos: [] });
+    const l = lojas.includes(req.query.l) ? req.query.l : lojas[0];
+    const items = await onSale(l, await currentRate());
+    res.setHeader('Cache-Control', 'no-cache');
+    res.json({ ...base, loja: l, moeda: l === 'PY' ? 'USD' : 'BRL', produtos: items.map(({ p, preco, qtd }) => ({
+      id: p.id, codigo: p.codigo, nome: p.nome, marca: p.marca, grupo: p.grupo, descricao: p.descricao || '', preco,
+      max: Math.min(qtd, 999), poucas: qtd <= 3, estoque: cfg.mostrarEstoque ? qtd : undefined, foto: p.foto_ts || null,
+    })) });
+  }));
+
+  app.get('/loja/foto/:id', h(async (req, res) => {
+    const { rows } = await pool.query('select mime, data from product_photos where product_id=$1', [+req.params.id || 0]);
+    if (!rows[0]) return res.status(404).end();
+    // the address carries the photo's version, so it can be kept by the browser for good
+    res.setHeader('Content-Type', rows[0].mime);
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    res.end(rows[0].data);
+  }));
+
+  // a few orders per address and half hour, so the form cannot be used to flood the quotes
+  const tries = new Map();
+  const tooMany = ip => { const now = Date.now(), t = (tries.get(ip) || []).filter(x => now - x < 30 * 60e3); tries.set(ip, t); return t.length >= 6; };
+
+  app.post('/api/loja/pedido', h(async (req, res) => {
+    if (tooMany(req.ip)) return res.status(429).json({ erro: 'Muitos pedidos em pouco tempo. Fale conosco pelo WhatsApp.' });
+    const b = req.body || {}, cfg = await config();
+    if (!cfg.ativo) bad('A loja está fechada no momento.');
+    const l = LOJAS.includes(b.loja) && cfg.lojas[b.loja].ativo ? b.loja : bad('Escolha a loja.');
+    const nome = str(b.nome, 120), tel = str(b.telefone, 40), cidade = str(b.cidade, 120), obs = str(b.obs, 500);
+    if (nome.length < 2) bad('Informe seu nome.');
+    if (digits(tel).length < 8) bad('Informe seu WhatsApp com DDD.');
+    const pagamento = PAYS.includes(b.pagamento) ? b.pagamento : bad('Escolha a forma de pagamento.');
+    const pedido = Array.isArray(b.itens) ? b.itens.slice(0, 80) : [];
+    if (!pedido.length) bad('Seu carrinho está vazio.');
+    const rate = await currentRate(); if (!rate) bad('A loja está indisponível no momento. Tente mais tarde.');
+    const disp = new Map((await onSale(l, rate)).map(x => [x.p.id, x]));
+    const itens = [];
+    for (const i of pedido) {
+      const x = disp.get(+i.id), qtd = Math.floor(num(i.qtd));
+      if (!x) bad('Um produto do carrinho não está mais disponível. Atualize a página.');
+      if (qtd < 1) continue;
+      if (qtd > x.qtd) bad(`Temos só ${x.qtd} un. de ${x.p.nome}.`);
+      const { rows: lt } = await pool.query(`select lote, validade from stock_lots where product_id=$1 and loja=$2 and qtd > 0 order by validade = '', validade, id limit 1`, [x.p.id, l]);
+      itens.push({ pid: x.p.id, nome: x.p.nome, codigo: x.p.codigo, lote: lt[0]?.lote || '', validade: lt[0]?.validade || '', qtd, preco: x.preco });
+    }
+    if (!itens.length) bad('Seu carrinho está vazio.');
+    const total = r2(itens.reduce((a, i) => a + i.qtd * i.preco, 0));
+    const validade = new Date(Date.parse(todayStr() + 'T12:00:00Z') + 7 * 864e5).toISOString().slice(0, 10);
+    const nota = ['Pedido da loja online', 'WhatsApp: ' + tel, cidade && 'Cidade: ' + cidade, 'Pagamento: ' + pagamento, obs && 'Obs. do cliente: ' + obs].filter(Boolean).join(' · ');
+    const { rows } = await pool.query(`insert into quotes (loja,data,ts,moeda,cliente,obs,validade,itens,total,cotacao,vendedor_id,vendedor_nome,subtotal,origem,contato) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,null,'Loja online',$9,'site',$11) returning id`,
+      [l, todayStr(), Date.now(), l === 'PY' ? 'USD' : 'BRL', nome, nota, validade, JSON.stringify(itens), total, rate, tel]);
+    await linkCli(pool, 'quotes', rows[0].id);
+    tries.get(req.ip).push(Date.now());
+    bump();
+    res.json({ ok: true, numero: String(rows[0].id).padStart(6, '0'), total, moeda: l === 'PY' ? 'USD' : 'BRL', whatsapp: cfg.lojas[l].whatsapp });
+  }));
+
+  app.post('/api/loja/config', auth, need('usuarios'), h(async (req, res) => {
+    const b = req.body || {};
+    const c = {
+      ativo: b.ativo !== false, nome: str(b.nome, 80), slogan: str(b.slogan, 160), sobre: str(b.sobre, 1200), mostrarEstoque: !!b.mostrarEstoque,
+      lojas: Object.fromEntries(LOJAS.map(l => [l, { ativo: b.lojas?.[l]?.ativo !== false, whatsapp: digits(b.lojas?.[l]?.whatsapp).slice(0, 16) }])),
+    };
+    await pool.query('insert into settings (id) values (1) on conflict (id) do nothing');
+    await pool.query('update settings set loja=$1 where id=1', [JSON.stringify(c)]);
+    bump(); res.json({ ok: true });
+  }));
+
+  // the photo comes already reduced by the browser, as a data URL
+  app.post('/api/products/:id/foto', auth, need('produtos'), h(async (req, res) => {
+    const m = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(String(req.body?.data || ''));
+    if (!m) bad('Envie uma imagem JPG, PNG ou WEBP.');
+    const buf = Buffer.from(m[2], 'base64');
+    if (buf.length > 700 * 1024) bad('Imagem muito grande.');
+    const id = +req.params.id, ts = Date.now();
+    const { rowCount } = await pool.query('update products set foto_ts=$1 where id=$2', [ts, id]);
+    if (!rowCount) bad('Produto não encontrado.');
+    await pool.query('insert into product_photos (product_id, mime, data) values ($1,$2,$3) on conflict (product_id) do update set mime=excluded.mime, data=excluded.data', [id, m[1], buf]);
+    bump(); res.json({ ok: true, foto: ts });
+  }));
+  app.delete('/api/products/:id/foto', auth, need('produtos'), h(async (req, res) => {
+    await pool.query('delete from product_photos where product_id=$1', [+req.params.id]);
+    await pool.query('update products set foto_ts=null where id=$1', [+req.params.id]);
+    bump(); res.json({ ok: true });
+  }));
+
+  return { config };
+};

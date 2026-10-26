@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Loja</title>
+<meta name="description" content="Catálogo online com estoque atualizado. Faça seu pedido e confirme pelo WhatsApp.">
+<meta name="theme-color" content="#faf8f5">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="loja.css">
+</head>
+<body>
+<header class="top">
+  <div class="wrap top-in">
+    <a class="brand" href="#" id="brand"><span class="brand-mark" id="brandMark"></span><span id="brandName"></span></a>
+    <label class="search" id="searchBox"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg><input type="search" id="q" placeholder="Buscar produto ou marca" autocomplete="off" aria-label="Buscar"></label>
+    <div class="store" id="storeSw" role="group" aria-label="Loja"></div>
+    <button class="cart-btn" id="cartBtn" aria-label="Abrir pedido"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14l-1.2 11.2a2 2 0 0 1-2 1.8H8.2a2 2 0 0 1-2-1.8z"/><path d="M9 7V6a3 3 0 0 1 6 0v1"/></svg><span class="cart-n" id="cartN" hidden>0</span></button>
+  </div>
+</header>
+
+<main>
+  <section class="hero wrap">
+    <p class="eyebrow" id="heroEyebrow">Catálogo online</p>
+    <h1 id="heroTitle"></h1>
+    <p class="hero-sub">Estoque atualizado em tempo real. Monte seu pedido e confirme pelo WhatsApp.</p>
+  </section>
+
+  <section class="wrap">
+    <div class="filters">
+      <div class="chips" id="chips" role="tablist" aria-label="Categorias"></div>
+      <div class="filters-r">
+        <select id="fMarca" aria-label="Marca"></select>
+        <select id="fSort" aria-label="Ordenar">
+          <option value="nome">Nome, A a Z</option>
+          <option value="menor">Menor preço</option>
+          <option value="maior">Maior preço</option>
+        </select>
+      </div>
+    </div>
+    <p class="count" id="count"></p>
+    <div class="grid" id="grid"></div>
+    <div class="state" id="state" hidden></div>
+  </section>
+</main>
+
+<footer class="foot">
+  <div class="wrap foot-in">
+    <div>
+      <div class="foot-brand" id="footName"></div>
+      <p class="foot-text" id="footAbout"></p>
+    </div>
+    <div class="foot-contact" id="footContact"></div>
+  </div>
+  <div class="wrap foot-legal">Preços e disponibilidade sujeitos a confirmação. O pagamento é combinado na confirmação do pedido.</div>
+</footer>
+
+<!-- product -->
+<div class="overlay" id="pOverlay" hidden>
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="pName">
+    <button class="close" data-close aria-label="Fechar">×</button>
+    <div class="p-media" id="pMedia"></div>
+    <div class="p-info">
+      <p class="p-brand" id="pBrand"></p>
+      <h2 id="pName"></h2>
+      <p class="p-group" id="pGroup"></p>
+      <div class="p-price" id="pPrice"></div>
+      <p class="p-desc" id="pDesc"></p>
+      <div class="p-buy"><div class="step" id="pStep"></div><button class="btn primary" id="pAdd">Adicionar ao pedido</button></div>
+      <p class="p-note" id="pNote"></p>
+    </div>
+  </div>
+</div>
+
+<!-- cart and checkout -->
+<div class="scrim" id="scrim" hidden></div>
+<aside class="drawer" id="drawer" aria-label="Seu pedido" aria-hidden="true">
+  <div class="dr-head"><h2 id="drTitle">Seu pedido</h2><button class="close" id="drClose" aria-label="Fechar">×</button></div>
+  <div class="dr-body" id="drBody"></div>
+  <div class="dr-foot" id="drFoot"></div>
+</aside>
+
+<div class="toast" id="toast" hidden></div>
+<script src="loja.js"></script>
+</body>
+</html>

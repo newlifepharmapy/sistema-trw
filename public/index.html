@@ -78,6 +78,7 @@
         <button data-tab="users"><i class="ic">☺</i>Usuários</button>
         <button data-tab="nota"><i class="ic">⎙</i>Impressão da nota</button>
         <button data-tab="bot"><i class="ic">✆</i>Bot WhatsApp</button>
+        <button data-tab="shop"><i class="ic">◈</i>Loja online</button>
       </div>
     </nav>
     <div class="side-foot">
@@ -208,6 +209,15 @@
             <label class="field"><span class="lbl">Preço fixo em R$ (opcional)</span><input type="number" id="pPriceBrl" step="0.01" min="0" placeholder="Automático pelo dólar"></label>
             <label class="field"><span class="lbl">Estoque Paraguay</span><input type="number" id="pStPY" step="1"></label>
             <label class="field"><span class="lbl">Estoque São Paulo</span><input type="number" id="pStSP" step="1"></label>
+          </div>
+          <div class="pshop">
+            <div class="pfoto" id="pFotoBox"><img id="pFotoImg" alt="" hidden><span id="pFotoPh">Sem foto</span></div>
+            <div class="pshop-r">
+              <span class="lbl">Loja online</span>
+              <div class="row wrap" style="gap:8px"><label class="btn small" for="pFoto">Escolher foto</label><input type="file" id="pFoto" accept="image/*" hidden><button class="btn small" id="pFotoRm" type="button" hidden>Remover foto</button></div>
+              <label class="field"><span class="lbl">Descrição para o site (opcional)</span><textarea id="pDesc" maxlength="2000" placeholder="Apresentação, indicação, conteúdo da embalagem…"></textarea></label>
+              <label class="check"><input type="checkbox" id="pOculto"> Não mostrar na loja online</label>
+            </div>
           </div>
           <div id="pLotsBox" class="plots" hidden>
             <div class="row between"><span class="lbl">Lotes em estoque</span><button class="btn small" id="pLotAdd" type="button">Adicionar lote</button></div>
@@ -394,6 +404,35 @@
       </section>
 
       <!-- WHATSAPP BOT -->
+      <section class="pane" id="pane-shop" hidden>
+        <div class="card">
+          <div class="row between"><h2>Loja online</h2><span class="pill" id="shState">—</span></div>
+          <p class="hint">O site mostra os produtos com estoque e preço de venda de cada loja, com foto e descrição cadastradas em Produtos. Custo, lote e fornecedor nunca aparecem. Cada pedido feito no site chega em <b>Orçamentos</b> marcado como “Loja online”, sem mexer no estoque.</p>
+          <div class="row wrap" style="gap:10px;margin:6px 0 14px"><a class="btn primary" id="shOpen" href="/loja/" target="_blank" rel="noopener">Abrir a loja</a><button class="btn" id="shCopy" type="button">Copiar endereço</button><span class="hint num" id="shUrl"></span></div>
+          <div class="fields">
+            <label class="field span2"><span class="lbl">Nome da loja</span><input type="text" id="shNome" maxlength="80" placeholder="ex.: TRW Trade Group"></label>
+            <label class="field span2"><span class="lbl">Frase de destaque</span><input type="text" id="shSlogan" maxlength="160" placeholder="Produtos com procedência, entregues com cuidado."></label>
+            <label class="field span4"><span class="lbl">Sobre a loja (rodapé)</span><textarea id="shSobre" maxlength="1200" placeholder="Quem somos, horários, entrega…"></textarea></label>
+          </div>
+          <div class="grid2" style="margin-top:6px">
+            <div class="nota-loja"><h3><span class="pill py">PY</span> Paraguay · preços em US$</h3>
+              <label class="check"><input type="checkbox" id="shPY"> Mostrar a loja Paraguay no site</label>
+              <label class="field"><span class="lbl">WhatsApp que recebe os pedidos (com código do país)</span><input type="tel" id="shWaPY" placeholder="595981123456"></label></div>
+            <div class="nota-loja"><h3><span class="pill sp">SP</span> São Paulo · preços em R$</h3>
+              <label class="check"><input type="checkbox" id="shSP"> Mostrar a loja São Paulo no site</label>
+              <label class="field"><span class="lbl">WhatsApp que recebe os pedidos (com código do país)</span><input type="tel" id="shWaSP" placeholder="5511987654321"></label></div>
+          </div>
+          <label class="check" style="margin-top:10px"><input type="checkbox" id="shQtd"> Mostrar ao cliente a quantidade exata em estoque</label>
+          <label class="check"><input type="checkbox" id="shAtivo"> Loja aberta (desmarque para fechar o site)</label>
+          <div class="row actions"><button class="btn primary" id="shSave">Salvar</button></div>
+        </div>
+        <div class="card">
+          <h2>O que aparece no site</h2>
+          <div class="kpis" id="shKpis"></div>
+          <p class="hint">Só entram produtos com estoque e preço de venda na loja escolhida. Para tirar um produto do site, marque “Não mostrar na loja online” em Produtos › Editar. Produtos sem foto aparecem com as iniciais da marca.</p>
+        </div>
+      </section>
+
       <section class="pane" id="pane-bot" hidden>
         <div class="card">
           <div class="row between"><h2>Conexão com o WhatsApp</h2><span class="pill" id="botState">—</span></div>

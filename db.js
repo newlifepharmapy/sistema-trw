@@ -224,6 +224,14 @@ create index if not exists customer_moves_cli_idx on customer_moves (cliente_id,
 alter table sales add column if not exists cliente_id int;
 alter table quotes add column if not exists cliente_id int;
 create index if not exists sales_cliente_idx on sales (cliente_id);
+-- online shop: settings, product description, photo and visibility, and the origin of each quote
+alter table settings add column if not exists loja jsonb not null default '{}'::jsonb;
+alter table products add column if not exists descricao text not null default '';
+alter table products add column if not exists loja_oculto boolean not null default false;
+alter table products add column if not exists foto_ts bigint;
+create table if not exists product_photos (product_id int primary key references products(id) on delete cascade, mime text not null, data bytea not null);
+alter table quotes add column if not exists origem text not null default 'sistema';
+alter table quotes add column if not exists contato text not null default '';
 -- one-time data changes already applied
 create table if not exists migrations (name text primary key, ts bigint not null);
 `;
