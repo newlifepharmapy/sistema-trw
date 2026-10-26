@@ -26,9 +26,11 @@ module.exports = ({ app, pool, auth, need, h, bad, bump, str, num, r2, todayStr,
     return rows.map(p => ({ p, preco: priceOf(p, l, rate), qtd: Math.floor(+p[stockCol(l)]) })).filter(x => x.preco > 0 && x.qtd > 0);
   }
 
-  // on the shop's own address (loja.<domain>) the root shows the shop instead of the system
+  // on the shop's own addresses (loja.<domain>, or a domain listed in SHOP_HOSTS) the root shows the shop instead of the system
+  const SHOP_HOSTS = (process.env.SHOP_HOSTS || 'newlifepharma.co,www.newlifepharma.co').split(',').map(x => x.trim().toLowerCase()).filter(Boolean);
+  const shopHost = host => /^loja\./i.test(host) || SHOP_HOSTS.includes(host.toLowerCase());
   app.use((req, res, next) => {
-    if (/^loja\./i.test(req.hostname || '') && !req.path.startsWith('/api/') && !/^\/loja(\/|$)/.test(req.path)) req.url = '/loja' + req.url;
+    if (shopHost(req.hostname || '') && !req.path.startsWith('/api/') && !/^\/loja(\/|$)/.test(req.path)) req.url = '/loja' + req.url;
     next();
   });
 
