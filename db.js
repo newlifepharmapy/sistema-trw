@@ -228,6 +228,9 @@ create index if not exists sales_cliente_idx on sales (cliente_id);
 alter table settings add column if not exists loja jsonb not null default '{}'::jsonb;
 alter table products add column if not exists descricao text not null default '';
 alter table products add column if not exists loja_oculto boolean not null default false;
+-- a price only for the online shop (0 = the system's price): dollars in Paraguay, reais in São Paulo
+alter table products add column if not exists loja_preco_usd numeric not null default 0;
+alter table products add column if not exists loja_preco_brl numeric not null default 0;
 alter table products add column if not exists foto_ts bigint;
 create table if not exists product_photos (product_id int primary key references products(id) on delete cascade, mime text not null, data bytea not null);
 alter table quotes add column if not exists origem text not null default 'sistema';

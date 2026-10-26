@@ -1387,7 +1387,9 @@ let shTab = (() => { try { return localStorage.getItem('trw_shtab') || 'cfg'; } 
 const shCats = () => S.shopCats || [];
 const catName = id => shCats().find(c => c.id === id)?.nome || '';
 // what the customer sees for a product in one store
-const shLive = (p, l) => !p.lojaOculto && stockOf(p, l) > 0 && priceFor(p, l === 'PY' ? 'USD' : 'BRL') > 0;
+// the price on the site: the one set only for the site, or else the system's price
+const shPrice = (p, l) => +p.lojaPreco?.[l] > 0 ? +p.lojaPreco[l] : priceFor(p, l === 'PY' ? 'USD' : 'BRL');
+const shLive = (p, l) => !p.lojaOculto && stockOf(p, l) > 0 && shPrice(p, l) > 0;
 function renderShop() {
   const c = S.settings?.loja || {};
   const ativo = c.ativo !== false, on = l => c.lojas?.[l]?.ativo !== false;
@@ -1415,22 +1417,29 @@ function shopProdList() {
   const f = $('#shPF').value.trim().toLowerCase(), cat = $('#shPCat').value, sit = $('#shPSit').value;
   return S.products.filter(p => matchP(p, f)
     && (!cat || (cat === '0' ? !p.categoriaId : p.categoriaId === +cat))
-    && (!sit || (sit === 'on' ? !p.lojaOculto : sit === 'off' ? p.lojaOculto : sit === 'nostock' ? stockOf(p, 'PY') <= 0 && stockOf(p, 'SP') <= 0 : sit === 'noprice' ? !(+p.precoUsd > 0) && !(+p.precoBrl > 0) : !p.foto)));
+    && (!sit || (sit === 'on' ? !p.lojaOculto : sit === 'off' ? p.lojaOculto : sit === 'nostock' ? stockOf(p, 'PY') <= 0 && stockOf(p, 'SP') <= 0 : sit === 'noprice' ? !(shPrice(p, 'PY') > 0) && !(shPrice(p, 'SP') > 0) : sit === 'siteprice' ? +p.lojaPreco?.PY > 0 || +p.lojaPreco?.SP > 0 : !p.foto)));
 }
 function renderShopProd() {
   const ed = can('produtos'), cv = $('#shPCat').value;
   $('#shPCat').innerHTML = catOpts(null, 'Todas') + '<option value="0">Sem categoria</option>'; $('#shPCat').value = cv;
   $('#shPMove').innerHTML = '<option value="">Mover os listados para…</option>' + shCats().map(c => `<option value="${c.id}">${esc(c.nome)}</option>`).join('') + '<option value="0">Sem categoria</option>';
   $$('.shbulk button, .shbulk select').forEach(b => { b.hidden = !ed; });
+  // a site price being typed is not wiped by a data refresh
+  if ($('#shPList').contains(document.activeElement) && document.activeElement.dataset.shpr) return;
   const L = shopProdList();
   $('#shPCount').textContent = `${L.length} de ${S.products.length} produtos · ${L.filter(p => !p.lojaOculto).length} ativos na loja`;
   const st = (p, l) => `<span class="pill num ${stockOf(p, l) <= 0 ? 'bad' : stockOf(p, l) <= 3 ? 'warn' : ''}">${stockOf(p, l)}</span>`;
-  const pr = (p, cur) => { const v = priceFor(p, cur); return v > 0 ? fm(v, cur) : '<span class="pill warn">sem preço</span>'; };
-  $('#shPList').innerHTML = L.length ? `<table><thead><tr><th></th><th>Produto</th><th>Categoria</th><th class="r">Preço PY</th><th class="r">Preço SP</th><th class="r">PY</th><th class="r">BR</th><th class="r">No site</th></tr></thead><tbody>${L.map(p => `<tr class="${p.lojaOculto ? 'off' : ''}">
+  const pr = (p, l) => {
+    const cur = l === 'PY' ? 'USD' : 'BRL', sys = priceFor(p, cur), own = +p.lojaPreco?.[l] || 0;
+    const sysTxt = `<div class="hint">${sys > 0 ? 'Sistema: ' + fm(sys, cur) : 'sem preço no sistema'}</div>`;
+    if (!ed) return (own ? fm(own, cur) : sys > 0 ? fm(sys, cur) : '<span class="pill warn">sem preço</span>') + (own ? sysTxt : '');
+    return `<input type="number" class="shpr${own ? ' own' : ''}" data-shpr="${p.id}" data-l="${l}" min="0" step="0.01" value="${own || ''}" placeholder="padrão" aria-label="Preço no site ${l === 'PY' ? 'Paraguay' : 'São Paulo'}, ${esc(p.nome)}">${sysTxt}`;
+  };
+  $('#shPList').innerHTML = L.length ? `<table><thead><tr><th></th><th>Produto</th><th>Categoria</th><th class="r">Preço no site PY (US$)</th><th class="r">Preço no site SP (R$)</th><th class="r">PY</th><th class="r">BR</th><th class="r">No site</th></tr></thead><tbody>${L.map(p => `<tr class="${p.lojaOculto ? 'off' : ''}">
     <td>${p.foto ? `<img class="sh-thumb" src="/loja/foto/${p.id}?v=${p.foto}" alt="" loading="lazy">` : '<span class="sh-thumb ph">sem foto</span>'}</td>
     <td>${esc(p.nome)}<div class="hint">${esc([p.codigo, p.marca].filter(Boolean).join(' · '))}</div></td>
     <td>${ed ? `<select data-shcat="${p.id}">${catOpts(p.categoriaId, 'Sem categoria')}</select>` : esc(catName(p.categoriaId) || '—')}</td>
-    <td class="r num">${pr(p, 'USD')}</td><td class="r num">${pr(p, 'BRL')}</td><td class="r">${st(p, 'PY')}</td><td class="r">${st(p, 'SP')}</td>
+    <td class="r num">${pr(p, 'PY')}</td><td class="r num">${pr(p, 'SP')}</td><td class="r">${st(p, 'PY')}</td><td class="r">${st(p, 'SP')}</td>
     <td class="r"><label class="sw" title="${p.lojaOculto ? 'Desativado na loja' : 'Ativo na loja'}"><input type="checkbox" data-shon="${p.id}"${p.lojaOculto ? '' : ' checked'}${ed ? '' : ' disabled'} aria-label="Mostrar ${esc(p.nome)} na loja"><span></span></label></td></tr>`).join('')}</tbody></table>`
     : `<div class="empty">${S.products.length ? 'Nenhum produto encontrado.' : 'Nenhum produto cadastrado ainda.'}</div>`;
 }
@@ -1463,9 +1472,14 @@ const shBulk = async (body, msg) => {
 $('#shPOn').onclick = () => shBulk({ ativo: true }, n => `${n} produto${n > 1 ? 's' : ''} ativado${n > 1 ? 's' : ''} na loja.`);
 $('#shPOff').onclick = () => shBulk({ ativo: false }, n => `${n} produto${n > 1 ? 's' : ''} desativado${n > 1 ? 's' : ''} na loja.`);
 $('#shPMove').onchange = async e => { const v = e.target.value; if (v === '') return; e.target.value = ''; await shBulk({ categoriaId: +v || null }, n => `${n} produto${n > 1 ? 's' : ''} movido${n > 1 ? 's' : ''} para ${+v ? catName(+v) : 'sem categoria'}.`); };
+$('#shPList').onkeydown = e => { if (e.key === 'Enter' && e.target.dataset.shpr) e.target.blur(); };
 $('#shPList').onchange = async e => {
   const t = e.target;
-  if (t.dataset.shon) await act(() => api('/loja/produtos', 'POST', { ids: [+t.dataset.shon], ativo: t.checked }), t.checked ? 'Produto ativado na loja.' : 'Produto desativado na loja.');
+  if (t.dataset.shpr) {
+    const v = Math.max(0, +String(t.value).replace(',', '.') || 0);
+    t.blur();
+    await act(() => api(`/loja/produtos/${t.dataset.shpr}/preco`, 'PUT', { loja: t.dataset.l, valor: v }), v ? 'Preço do site salvo.' : 'O site volta a usar o preço do sistema.');
+  } else if (t.dataset.shon) await act(() => api('/loja/produtos', 'POST', { ids: [+t.dataset.shon], ativo: t.checked }), t.checked ? 'Produto ativado na loja.' : 'Produto desativado na loja.');
   else if (t.dataset.shcat) await act(() => api('/loja/produtos', 'POST', { ids: [+t.dataset.shcat], categoriaId: +t.value || null }), 'Categoria do produto alterada.');
 };
 $('#shCatAdd').onclick = async () => {

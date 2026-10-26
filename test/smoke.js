@@ -334,6 +334,17 @@ function client() {
   const pedV = await pub('/api/loja/pedido', 'POST', { loja: 'PY', itens: [{ id: snp.data.id, qtd: 1 }], nome: 'Cliente Prazo', telefone: '0981 222 444', pagamento: 'EFETIVO' });
   const oqV = (await adm('/api/data')).data.quotes.find(q => q.id === +pedV.data.numero);
   assert(oqV && Math.round((Date.parse(oqV.validade) - Date.parse(oqV.data)) / 864e5) === 3, 'validade do pedido segue a configuração');
+  // preço exclusivo do site
+  assert((await vend(`/api/loja/produtos/${cp.id}/preco`, 'PUT', { loja: 'PY', valor: 99 })).status === 403, 'preço do site exige permissão de produtos');
+  assert((await adm(`/api/loja/produtos/${cp.id}/preco`, 'PUT', { loja: 'PY', valor: 3.33 })).status === 200, 'preço do site salvo');
+  let sitePy = (await pub('/api/loja/catalogo?l=PY')).data.produtos.find(x => x.id === cp.id);
+  const sysP = (await adm('/api/data')).data.products.find(x => x.id === cp.id);
+  assert(sitePy.preco === 3.33 && sysP.lojaPreco.PY === 3.33 && +sysP.precoUsd !== 3.33, 'site usa o preço próprio e o sistema mantém o seu');
+  const pedS = await pub('/api/loja/pedido', 'POST', { loja: 'PY', itens: [{ id: cp.id, qtd: 2 }], nome: 'Cliente Preço', telefone: '0981 222 555', pagamento: 'EFETIVO' });
+  assert(pedS.status === 200 && pedS.data.total === 6.66, 'pedido do site sai com o preço do site');
+  await adm(`/api/loja/produtos/${cp.id}/preco`, 'PUT', { loja: 'PY', valor: 0 });
+  sitePy = (await pub('/api/loja/catalogo?l=PY')).data.produtos.find(x => x.id === cp.id);
+  assert(sitePy.preco === +sysP.precoUsd, 'preço do site vazio volta ao preço do sistema');
   await adm('/api/loja/config', 'POST', { ativo: true });
   console.log('\nTodos os testes passaram.');
 })().catch(e => { console.error(e); process.exit(1); });

@@ -314,3 +314,5 @@ td.r.num{white-space:nowrap}
 #shPList tr.off td:not(:last-child){opacity:.55}
 select.small{padding:5px 8px;font-size:.84rem;width:auto}
 .field textarea{width:100%;min-height:64px;font:inherit;padding:8px 10px;border:1px solid var(--line-2);border-radius:7px;background:var(--surface);color:var(--fg);resize:vertical}
+.shpr{width:110px!important;text-align:right}
+.shpr.own{border-color:var(--ok, #1d7a46);background:var(--ok-soft, #e3f4ea)}

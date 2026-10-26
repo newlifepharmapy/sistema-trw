@@ -456,13 +456,13 @@
           <div class="row wrap" style="gap:10px;align-items:end">
             <label class="field" style="flex:2;min-width:200px"><span class="lbl">Buscar</span><input type="search" id="shPF" placeholder="Nome, código ou marca"></label>
             <label class="field" style="flex:1;min-width:160px"><span class="lbl">Categoria</span><select id="shPCat"></select></label>
-            <label class="field" style="flex:1;min-width:140px"><span class="lbl">Situação</span><select id="shPSit"><option value="">Todos</option><option value="on">Ativos na loja</option><option value="off">Desativados</option><option value="nostock">Sem estoque</option><option value="noprice">Sem preço</option><option value="nofoto">Sem foto</option></select></label>
+            <label class="field" style="flex:1;min-width:140px"><span class="lbl">Situação</span><select id="shPSit"><option value="">Todos</option><option value="on">Ativos na loja</option><option value="off">Desativados</option><option value="nostock">Sem estoque</option><option value="noprice">Sem preço</option><option value="siteprice">Com preço só do site</option><option value="nofoto">Sem foto</option></select></label>
           </div>
           <div class="row wrap shbulk" style="gap:8px;margin:12px 0 4px"><span class="hint" id="shPCount"></span><span style="flex:1"></span>
             <button class="btn small" id="shPOn" type="button">Ativar os listados</button><button class="btn small" id="shPOff" type="button">Desativar os listados</button>
             <select id="shPMove" class="small"><option value="">Mover os listados para…</option></select></div>
           <div class="tablewrap" id="shPList"></div>
-          <p class="hint">Todo produto cadastrado entra no site ativado. Foto e descrição ficam em Produtos › Editar. Na loja só dá para pedir o que tem estoque e preço naquela loja.</p>
+          <p class="hint">O preço no site é opcional: deixe vazio (“padrão”) para usar o preço do sistema, mostrado embaixo. Ele vale só para a loja online e para os pedidos feitos nela; vendas, orçamentos e tabelas do sistema continuam com o preço normal. Todo produto cadastrado entra no site ativado. Foto e descrição ficam em Produtos › Editar. Na loja só dá para pedir o que tem estoque e preço naquela loja.</p>
         </div>
 
         <div class="card" id="shPaneCat" hidden>

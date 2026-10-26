@@ -30,7 +30,9 @@ module.exports = ({ app, pool, auth, need, h, bad, bump, str, num, r2, todayStr,
   const OPT_TXT = ['nome', 'chamada', 'slogan', 'subtitulo', 'sobre', 'aviso', 'fechadaMsg', 'pedidoMsg', 'instagram', 'email', 'endereco', 'horario'];
   const stockCol = l => (l === 'PY' ? 'estoque_py' : 'estoque_sp');
   // Paraguay sells in dollars; São Paulo in reais, at the fixed R$ price or the dollar price at today's rate
-  const priceOf = (p, l, rate) => (l === 'PY' ? r2(p.preco_usd) : +p.preco_brl > 0 ? r2(p.preco_brl) : rate ? r2(p.preco_usd * rate) : 0);
+  // a price set only for the site wins over the system's price in that store
+  const priceOf = (p, l, rate) => (l === 'PY' ? r2(+p.loja_preco_usd > 0 ? p.loja_preco_usd : p.preco_usd)
+    : +p.loja_preco_brl > 0 ? r2(p.loja_preco_brl) : +p.preco_brl > 0 ? r2(p.preco_brl) : rate ? r2(p.preco_usd * rate) : 0);
   // every active product switched on for the shop, in an active category (or none); with stock and price it can be ordered
   async function listed(l, rate) {
     const { rows } = await pool.query(`select p.*, c.nome cat_nome, c.ordem cat_ordem from products p left join shop_categories c on c.id = p.categoria_id
@@ -166,6 +168,15 @@ module.exports = ({ app, pool, auth, need, h, bad, bump, str, num, r2, todayStr,
       if (cid && !(await pool.query('select 1 from shop_categories where id=$1', [cid])).rows.length) bad('Categoria não encontrada.');
       await pool.query('update products set categoria_id=$1 where id = any($2)', [cid, ids]);
     }
+    bump(); res.json({ ok: true });
+  }));
+
+  // the site-only price of one product in one store; empty or 0 goes back to the system's price
+  app.put('/api/loja/produtos/:id/preco', auth, need('produtos'), h(async (req, res) => {
+    const loja = LOJAS.includes(req.body?.loja) ? req.body.loja : bad('Loja inválida.');
+    const valor = r2(Math.max(0, num(req.body.valor)));
+    const r = await pool.query(`update products set ${loja === 'PY' ? 'loja_preco_usd' : 'loja_preco_brl'}=$1 where id=$2 and ativo`, [valor, +req.params.id]);
+    if (!r.rowCount) bad('Produto não encontrado.');
     bump(); res.json({ ok: true });
   }));
 
