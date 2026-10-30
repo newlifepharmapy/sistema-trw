@@ -76,7 +76,7 @@ function renderShell() {
     + (d.endereco ? `<span>${ic.pin}${esc(d.endereco)}</span>` : '')
     + (d.horario ? `<span>${ic.clock}${esc(d.horario)}</span>` : '');
   $('#storeSw').hidden = d.lojas.length < 2;
-  $('#storeSw').innerHTML = d.lojas.map(l => `<button type="button" data-store="${l.id}" class="${l.id === d.loja ? 'on' : ''}" aria-pressed="${l.id === d.loja}"><img src="${FLAG[l.id]}" alt=""><span class="lbl">${esc(l.nome)} · </span>${l.moeda === 'USD' ? 'US$' : 'R$'}</button>`).join('');
+  $('#storeSw').innerHTML = d.lojas.map(l => `<button type="button" data-store="${l.id}" title="${esc(l.nome)} · ${l.moeda === 'USD' ? 'US$' : 'R$'}" class="${l.id === d.loja ? 'on' : ''}" aria-pressed="${l.id === d.loja}"><img src="${FLAG[l.id]}" alt=""><span class="lbl">${esc(l.nome)} · </span><span class="cur">${l.moeda === 'USD' ? 'US$' : 'R$'}</span></button>`).join('');
   // one tab per category, in the order set in the panel; the first one opens selected
   const cats = d.categorias || [];
   if (!cats.some(c => c.id === S.cat)) S.cat = cats[0]?.id ?? null;
