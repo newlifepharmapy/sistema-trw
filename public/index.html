@@ -91,6 +91,7 @@
     <header class="topbar">
       <button class="btn ghost menu-btn" id="menuBtn" aria-label="Abrir menu">☰</button>
       <h1 id="pageTitle">Dashboard</h1>
+      <button class="btn ghost reload-btn" id="reloadBtn" type="button" title="Atualizar a página" aria-label="Atualizar a página"><span aria-hidden="true">⟳</span></button>
       <div class="rate" title="Cotação do dólar usada em todas as conversões">
         <span class="lbl">US$ 1 =</span><span class="v" id="rateV">—</span><span class="when" id="rateWhen"></span>
         <button class="btn small" id="rateBtn" data-perm="cambio">Atualizar</button>
@@ -578,6 +579,7 @@
 <datalist id="dlCli"></datalist><datalist id="dlGrupo"></datalist><datalist id="dlFor"></datalist><datalist id="dlMarca"></datalist>
 <div id="toastHost"></div>
 <div id="printArea" aria-hidden="true"></div>
+<div class="ptr" id="ptr" aria-hidden="true"><span>⟳</span></div>
 <script src="/app.js"></script>
 </body>
 </html>

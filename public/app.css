@@ -412,3 +412,15 @@ select.small{padding:5px 8px;font-size:.84rem;width:auto}
   .modal-card{width:100%;max-height:92vh;overflow-y:auto;border-radius:16px 16px 0 0}
   .toast{bottom:16px}
 }
+
+/* refresh button in the header + pull-down-to-refresh indicator */
+.reload-btn{padding:6px 10px;font-size:1.1rem;line-height:1}
+.reload-btn span{display:inline-block}
+.reload-btn.spin span,.ptr.busy span{animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.ptr{position:fixed;left:50%;top:-44px;width:40px;height:40px;border-radius:50%;background:var(--surface);color:var(--accent);box-shadow:0 4px 14px rgba(0,0,0,.18);display:grid;place-items:center;font-size:1.3rem;z-index:80;transform:translate(-50%,0);opacity:0;pointer-events:none}
+.ptr.pull{opacity:1}
+.ptr.ready{background:var(--accent);color:#fff}
+.ptr.busy{opacity:1;transform:translate(-50%,64px)!important;transition:transform .15s}
+@media (pointer:coarse){html,body{overscroll-behavior-y:contain}}
+@media (max-width:640px){.reload-btn{padding:6px 9px;margin-left:auto;flex:none}.topbar h1{margin-right:0;flex:1}}

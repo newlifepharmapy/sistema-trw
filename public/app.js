@@ -181,6 +181,40 @@ function applyPerms() {
 }
 $('#nav').onclick = e => { const b = e.target.closest('button'); if (b) { show(b.dataset.tab); $('#app').classList.remove('nav-open'); } };
 $('#menuBtn').onclick = () => $('#app').classList.toggle('nav-open');
+// Refresh button in the header and pull-down-to-refresh on phones. It reloads the data from the
+// server without reloading the page, so a cart or form being filled in is not lost.
+async function reloadAll() {
+  if (reloadAll.busy) return; reloadAll.busy = true;
+  const b = $('#reloadBtn'); b.classList.add('spin'); b.disabled = true;
+  try { await loadData(); if (S.tab === 'bot') await loadBot(); toast('Página atualizada.'); }
+  catch (e) { if (!e.handled) toast('Sem conexão com o servidor.', true); }
+  finally { reloadAll.busy = false; b.classList.remove('spin'); b.disabled = false; }
+}
+$('#reloadBtn').onclick = reloadAll;
+(() => {
+  const ptr = $('#ptr'), MAX = 110, GO = 70;
+  let y0 = null, dy = 0;
+  const reset = () => { y0 = null; dy = 0; ptr.style.transform = ''; ptr.classList.remove('ready', 'pull'); };
+  document.addEventListener('touchstart', e => {
+    if (e.touches.length !== 1 || window.scrollY > 0 || $('#app').classList.contains('nav-open') || $('#app').hidden) return;
+    if (e.target.closest('.modal:not([hidden]), .sugg, .side, select, textarea')) return;
+    y0 = e.touches[0].clientY; dy = 0;
+  }, { passive: true });
+  document.addEventListener('touchmove', e => {
+    if (y0 === null) return;
+    dy = e.touches[0].clientY - y0;
+    if (dy <= 0 || window.scrollY > 0) { if (dy < 0) reset(); return; }
+    const d = Math.min(MAX, dy * .5);
+    ptr.classList.add('pull'); ptr.classList.toggle('ready', d >= GO);
+    ptr.style.transform = `translate(-50%, ${d}px) rotate(${d * 3}deg)`;
+  }, { passive: true });
+  document.addEventListener('touchend', () => {
+    if (y0 === null) return;
+    const go = Math.min(MAX, dy * .5) >= GO; reset();
+    if (go) { ptr.classList.add('busy'); reloadAll().finally(() => ptr.classList.remove('busy')); }
+  });
+  document.addEventListener('touchcancel', reset);
+})();
 // Phone layout: tables with more than 3 columns turn into one card per row (CSS under 640px).
 // Each cell gets its column name as data-label so the card can show "Produto: …".
 const mLabel = () => {
