@@ -181,6 +181,26 @@ function applyPerms() {
 }
 $('#nav').onclick = e => { const b = e.target.closest('button'); if (b) { show(b.dataset.tab); $('#app').classList.remove('nav-open'); } };
 $('#menuBtn').onclick = () => $('#app').classList.toggle('nav-open');
+// Phone layout: tables with more than 3 columns turn into one card per row (CSS under 640px).
+// Each cell gets its column name as data-label so the card can show "Produto: …".
+const mLabel = () => {
+  for (const t of document.querySelectorAll('#main table')) {
+    const hr = t.tHead && t.tHead.rows[t.tHead.rows.length - 1];
+    if (!hr) continue;
+    const names = [];
+    for (const th of hr.cells) { const n = th.textContent.trim(); for (let i = 0; i < (th.colSpan || 1); i++) names.push(n); }
+    t.classList.toggle('mcards', names.length > 3);
+    if (names.length <= 3) continue;
+    for (const sec of [...t.tBodies, t.tFoot].filter(Boolean)) for (const tr of sec.rows) {
+      let col = 0;
+      const wide = tr.cells.length === 1 || [...tr.cells].some(c => c.colSpan >= Math.max(3, names.length - 1));
+      tr.classList.toggle('mrow-full', wide);
+      for (const td of tr.cells) { const n = names[col] || ''; if (td.dataset.label !== n) td.dataset.label = n; col += td.colSpan || 1; }
+    }
+  }
+};
+let mT = 0;
+new MutationObserver(() => { clearTimeout(mT); mT = setTimeout(mLabel, 60); }).observe($('#main'), { childList: true, subtree: true });
 $('.main-col').addEventListener('click', e => { if ($('#app').classList.contains('nav-open') && !e.target.closest('#menuBtn')) $('#app').classList.remove('nav-open'); });
 document.addEventListener('click', e => { const g = e.target.closest('[data-goto]'); if (g) show(g.dataset.goto); });
 function show(t) {

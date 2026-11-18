@@ -316,3 +316,99 @@ select.small{padding:5px 8px;font-size:.84rem;width:auto}
 .field textarea{width:100%;min-height:64px;font:inherit;padding:8px 10px;border:1px solid var(--line-2);border-radius:7px;background:var(--surface);color:var(--fg);resize:vertical}
 .shpr{width:110px!important;text-align:right}
 .shpr.own{border-color:var(--ok, #1d7a46);background:var(--ok-soft, #e3f4ea)}
+
+/* ===== Phone layout (only under 640px; desktop is unchanged) ===== */
+@media (max-width:640px){
+  body{font-size:15px}
+  /* 16px inputs stop the iPhone from zooming in when a field is tapped */
+  input[type=text],input[type=email],input[type=tel],input[type=number],input[type=password],input[type=date],input[type=month],input[type=search],select,.field textarea{font-size:16px}
+  main{padding:12px 12px 80px}
+  .pane{gap:12px}
+  .card{padding:14px;border-radius:12px;gap:10px}
+
+  /* top bar in one compact row: menu, title, rate */
+  .topbar{padding:8px 12px;gap:8px;flex-wrap:nowrap}
+  .topbar h1{font-size:1.02rem;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .topbar .menu-btn{padding:6px 10px;font-size:1.1rem}
+  .rate{padding:3px 4px 3px 8px;gap:6px;flex:none}
+  .rate .lbl,.rate .when{display:none}
+  .rate .v{font-size:.9rem}
+  .rate .btn.small{padding:4px 8px;font-size:.75rem}
+  .live span{display:none}
+  .live{flex:none}
+
+  /* side menu: bigger touch targets */
+  .side{width:min(300px,86vw)}
+  .nav button{padding:11px 12px;font-size:.97rem}
+
+  /* filters and toolbars stack full width */
+  .toolbar{gap:8px}
+  .toolbar>*,.toolbar select,.toolbar input[type=search],.toolbar .gm-sel,#oFilter{width:100%;min-width:0;max-width:none}
+  .toolbar .btn{flex:1 1 auto}
+  .w280,.w200{max-width:none}
+  .seg{max-width:100%;overflow-x:auto;scrollbar-width:none}
+  .seg::-webkit-scrollbar{display:none}
+  .seg button{padding:8px 12px;white-space:nowrap;flex:none}
+  .btn{padding:10px 14px}
+  .btn.small{padding:7px 11px;font-size:.82rem}
+
+  /* summary boxes two per row */
+  .kpis{grid-template-columns:1fr 1fr;gap:8px}
+  .kpi{padding:10px 12px}
+  .kpi .v{font-size:1.08rem}
+  .kpi.big .v{font-size:1.35rem}
+  .kpi .s{font-size:.7rem}
+  .kpi .lbl{font-size:.62rem}
+  .flag-ic{width:22px}
+
+  /* tables with many columns become one card per row */
+  table.mcards,table.mcards tbody,table.mcards tfoot,table.mcards tr,table.mcards td{display:block;width:100%}
+  table.mcards thead{display:none}
+  table.mcards tr{border:1px solid var(--line);border-radius:10px;padding:6px 12px;margin:0 0 10px;background:var(--surface)}
+  table.mcards tbody tr:hover td{background:none}
+  table.mcards td{border:0;padding:6px 0;text-align:right;min-width:0;overflow:hidden}
+  table.mcards td::before{content:attr(data-label);float:left;margin-right:12px;font-size:.66rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600;text-align:left;max-width:45%;padding-top:3px;text-decoration:none}
+  table.mcards td[data-label=""]::before{display:none}
+  table.mcards td:empty{display:none}
+  table.mcards td+td{border-top:1px dashed var(--line)}
+  /* item lists take the whole card width under their label */
+  table.mcards td:has(.itlist),table.mcards td.buyitems{text-align:left}
+  table.mcards td:has(.itlist)::before,table.mcards td.buyitems::before{float:none;display:block;margin-bottom:4px}
+  table.mcards .itlist,table.mcards td.buyitems{min-width:0}
+  table.mcards td.lotc div{justify-content:flex-end}
+  /* group headers and full-width rows */
+  table.mcards tr.mrow-full,table.mcards tr.grp-row{border:0;background:none;padding:6px 2px;margin:14px 0 6px}
+  table.mcards tr.mrow-full td,table.mcards tr.grp-row td{display:block;text-align:left;background:none;border:0;padding:0}
+  table.mcards tr.mrow-full td::before,table.mcards tr.grp-row td::before{display:none}
+  table.mcards tr.cancel{opacity:.75}
+  table.mcards tfoot tr{background:var(--surface-2)}
+  .tablewrap:has(table.mcards){overflow-x:visible}
+  /* inputs inside cards */
+  table.mcards td input,table.mcards td select{max-width:60%}
+  .cart td input,.cart td input.q,td input.prin,.shpr{width:120px!important;font-size:16px}
+  table.mcards td .row{justify-content:flex-end}
+  table.mcards td[style*=nowrap],table.mcards td [style*=nowrap]{white-space:normal!important}
+  table.mcards td .btn.small{margin:2px 0}
+  .hint:has(.kbd){display:none}
+
+  /* cart: product on top, qty / price / subtotal side by side, remove button in the corner */
+  table.cart.mcards tr{display:grid;grid-template-columns:1fr 1fr 1fr;gap:2px 10px;position:relative;padding:8px 12px}
+  table.cart.mcards td{text-align:left;border:0}
+  table.cart.mcards td::before{float:none;display:block;margin:0 0 3px;white-space:nowrap;max-width:none}
+  table.cart.mcards tr{align-items:end}
+  table.cart.mcards td:first-child{grid-column:1/-1;padding-right:34px}
+  table.cart.mcards td:first-child::before{display:none}
+  table.cart.mcards td:last-child{position:absolute;top:4px;right:4px;width:auto;padding:0}
+  table.cart.mcards td input,table.cart.mcards td select{width:100%!important;max-width:none}
+  table.cart.mcards tr.mrow-full{display:block}
+  /* sale screen */
+  .checkout{position:static}
+  .total{font-size:1.8rem}
+  .pays{grid-template-columns:1fr 1fr 1fr}
+  .search input{font-size:16px}
+
+  /* dialogs sit at the bottom like a sheet */
+  .modal{place-items:end center;padding:0}
+  .modal-card{width:100%;max-height:92vh;overflow-y:auto;border-radius:16px 16px 0 0}
+  .toast{bottom:16px}
+}
