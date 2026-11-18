@@ -779,7 +779,7 @@ function renderCliDetail() {
     <h3 id="mTitle">${em ? `Editar lançamento de ${fDate(em.data)}` : 'Lançar na conta'}</h3>
     ${em ? `<div class="editbar">Editando um lançamento. O câmbio continua o do dia em que foi lançado (${fRate(em.cotacao)}).</div>` : ''}
     <div class="fields mvform">
-      <label class="field"><span class="lbl">Tipo</span><select id="mTipo"><option value="debito">Débito (o cliente deve)</option><option value="credito"${sel(em?.tipo, 'credito')}>Crédito (o cliente pagou ou adiantou)</option></select></label>
+      <label class="field"><span class="lbl">Tipo</span><select id="mTipo"><option value="debito">Débito</option><option value="credito"${sel(em?.tipo, 'credito')}>Crédito</option></select></label>
       <label class="field"><span class="lbl">Moeda</span><select id="mCur"><option value="USD">Dólar (US$)</option><option value="BRL"${sel(em?.moeda, 'BRL')}>Real (R$)</option></select></label>
       <label class="field"><span class="lbl">Valor</span><input type="number" id="mVal" min="0" step="0.01" value="${em ? +em.valor : ''}"></label>
       <label class="field"><span class="lbl">Data</span><input type="date" id="mData" value="${em ? String(em.data).slice(0, 10) : today()}"></label>
